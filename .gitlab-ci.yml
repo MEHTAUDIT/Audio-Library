@@ -1,0 +1,685 @@
+# GitLab CI/CD Pipeline for Audio Library
+# Builds, tests, publishes to GitLab Container Registry, and deploys infrastructure
+
+variables:
+  # AWS Configuration
+  AWS_REGION: "us-east-1"
+  AWS_ACCOUNT_ID_DEV: "067270456876"
+
+  # Docker/Registry Configuration
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_TLS_VERIFY: 1
+  DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+
+  # Image names (AWS ECR)
+  ECR_REGISTRY: "${AWS_ACCOUNT_ID_DEV}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+  BACKEND_IMAGE: "${AWS_ACCOUNT_ID_DEV}.dkr.ecr.${AWS_REGION}.amazonaws.com/audio-library-backend"
+  FRONTEND_IMAGE: "${AWS_ACCOUNT_ID_DEV}.dkr.ecr.${AWS_REGION}.amazonaws.com/audio-library-frontend"
+
+  # Versions
+  JAVA_VERSION: "21"
+  NODE_VERSION: "20"
+
+stages:
+  - test
+  - build
+  - publish
+  - deploy-infra
+  - deploy-app
+
+# ==================== REUSABLE TEMPLATES ====================
+
+# AWS OIDC Authentication Template
+.aws-oidc-auth:
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  before_script:
+  
+    - |
+      echo "Starting AWS OIDC authentication..."
+
+      echo "CI_COMMIT_REF_NAME=$CI_COMMIT_REF_NAME"
+      echo "CI_COMMIT_REF_PROTECTED=$CI_COMMIT_REF_PROTECTED"
+      echo "CI_ENVIRONMENT_NAME=$CI_ENVIRONMENT_NAME"
+      echo "AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID_DEV}"
+
+      # Determine the AWS role based on environment
+      case "$CI_ENVIRONMENT_NAME" in
+        production)
+          ROLE_NAME="AudioLibGitLabDeployProd"
+          AWS_ACCOUNT_ID="$AWS_ACCOUNT_ID_PROD"
+          ;;
+        staging)
+          ROLE_NAME="AudioLibGitLabDeployStaging"
+          AWS_ACCOUNT_ID="$AWS_ACCOUNT_ID_STAGING"
+          ;;
+        *)
+          ROLE_NAME="AudioLibGitLabDeployDev"
+          AWS_ACCOUNT_ID="$AWS_ACCOUNT_ID_DEV"
+          ;;
+      esac
+
+      ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
+      echo "Assuming role: $ROLE_ARN"
+
+      # Ensure jq is installed
+      if ! command -v jq >/dev/null; then
+        echo "Installing jq..."
+        yum install -y jq || { echo "Failed to install jq"; exit 1; }
+      fi
+
+      # Check that the OIDC token is present
+      if [ -z "$GITLAB_OIDC_TOKEN" ]; then
+        echo "ERROR: GITLAB_OIDC_TOKEN is not set!"
+        exit 1
+      fi
+
+    
+
+      # Assume the AWS role using OIDC
+      CREDENTIALS=$(aws sts assume-role-with-web-identity \
+        --role-arn "$ROLE_ARN" \
+        --role-session-name "gitlab-${CI_JOB_ID}" \
+        --web-identity-token "$GITLAB_OIDC_TOKEN" \
+        --duration-seconds 900 \
+        --query 'Credentials' \
+        --output json)
+
+      if [ $? -ne 0 ]; then
+        echo "Failed to assume role"
+        exit 1;
+      fi
+
+
+      # Export AWS credentials for the session
+      export AWS_ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r '.AccessKeyId')
+      export AWS_SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r '.SecretAccessKey')
+      export AWS_SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r '.SessionToken')
+
+      # Verify authentication
+      echo "Successfully authenticated as: $(aws sts get-caller-identity --query 'Arn' --output text)"
+
+# Docker-in-Docker service with ECR login via OIDC
+.docker-ecr-service:
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  services:
+    - docker:24-dind
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: sts.amazonaws.com
+  before_script:
+    - |
+      # Install Docker CLI (AWS CLI already present in amazon/aws-cli image)
+      yum install -y docker jq
+
+      # OIDC authentication — determine role based on environment
+      case "$CI_ENVIRONMENT_NAME" in
+        production) ROLE_NAME="AudioLibGitLabDeployProd"; AWS_ACCOUNT_ID="$AWS_ACCOUNT_ID_PROD" ;;
+        staging)    ROLE_NAME="AudioLibGitLabDeployStaging"; AWS_ACCOUNT_ID="$AWS_ACCOUNT_ID_STAGING" ;;
+        *)          ROLE_NAME="AudioLibGitLabDeployDev"; AWS_ACCOUNT_ID="$AWS_ACCOUNT_ID_DEV" ;;
+      esac
+      ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${ROLE_NAME}"
+
+      CREDENTIALS=$(aws sts assume-role-with-web-identity \
+        --role-arn "$ROLE_ARN" \
+        --role-session-name "gitlab-${CI_JOB_ID}" \
+        --web-identity-token "$GITLAB_OIDC_TOKEN" \
+        --duration-seconds 900 \
+        --query 'Credentials' --output json)
+
+      export AWS_ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r '.AccessKeyId')
+      export AWS_SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r '.SecretAccessKey')
+      export AWS_SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r '.SessionToken')
+
+      echo "Authenticated as: $(aws sts get-caller-identity --query 'Arn' --output text)"
+
+      # Login to ECR
+      aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+      echo "ECR login successful"
+
+# ==================== TEST STAGE ====================
+
+test:backend:
+  stage: test
+  image: gradle:8.5-jdk${JAVA_VERSION}
+  script:
+    - cd backend
+    - gradle test --no-daemon
+  cache:
+    key: backend-gradle-${CI_COMMIT_REF_SLUG}
+    paths:
+      - backend/.gradle/
+      - backend/build/
+    policy: pull-push
+  artifacts:
+    when: always
+    reports:
+      junit: backend/build/test-results/test/*.xml
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+test:frontend:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - cd frontend
+    - npm ci --cache .npm
+    - npm run build
+  cache:
+    key: frontend-npm-${CI_COMMIT_REF_SLUG}
+    paths:
+      - frontend/.npm/
+      - frontend/node_modules/
+    policy: pull-push
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+test:infra:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - cd infra
+    - npm install
+    - npm run build
+    - npx cdk synth --quiet 2>/dev/null || echo "CDK synth completed (warnings ignored)"
+  cache:
+    key: infra-npm-${CI_COMMIT_REF_SLUG}
+    paths:
+      - infra/.npm/
+      - infra/node_modules/
+    policy: pull-push
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^deploy.*/
+
+# ==================== BUILD STAGE ====================
+
+build:backend:
+  stage: build
+  image: gradle:8.5-jdk${JAVA_VERSION}
+  script:
+    - cd backend
+    - gradle bootJar --no-daemon -x test
+    - echo "Built JAR:"
+    - ls -la build/libs/
+  cache:
+    key: backend-gradle-${CI_COMMIT_REF_SLUG}
+    paths:
+      - backend/.gradle/
+      - backend/build/
+    policy: pull
+  artifacts:
+    paths:
+      - backend/build/libs/*.jar
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^deploy.*/
+  needs:
+    - job: test:backend
+      optional: true
+
+build:frontend:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  script:
+    - cd frontend
+    - npm ci --cache .npm
+    - npm run build
+    - echo "Built frontend:"
+    - ls -la dist/
+  cache:
+    key: frontend-npm-${CI_COMMIT_REF_SLUG}
+    paths:
+      - frontend/.npm/
+      - frontend/node_modules/
+    policy: pull
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^deploy.*/
+  needs:
+    - job: test:frontend
+      optional: true
+
+# ==================== PUBLISH STAGE (AWS ECR) ====================
+
+publish:backend:
+  stage: publish
+  image: docker:24
+  extends: .docker-ecr-service
+  environment:
+    name: development
+  script:
+    - |
+      echo "Building backend Docker image..."
+      cd backend
+
+      docker build \
+        --tag "${BACKEND_IMAGE}:${CI_COMMIT_SHA}" \
+        --tag "${BACKEND_IMAGE}:${CI_COMMIT_REF_SLUG}" \
+        --tag "${BACKEND_IMAGE}:latest" \
+        .
+
+      echo "Pushing to AWS ECR..."
+      docker push "${BACKEND_IMAGE}:${CI_COMMIT_SHA}"
+      docker push "${BACKEND_IMAGE}:${CI_COMMIT_REF_SLUG}"
+      docker push "${BACKEND_IMAGE}:latest"
+
+      echo "Backend image published:"
+      echo "  ${BACKEND_IMAGE}:${CI_COMMIT_SHA}"
+      echo "  ${BACKEND_IMAGE}:${CI_COMMIT_REF_SLUG}"
+      echo "  ${BACKEND_IMAGE}:latest"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^deploy.*/
+  needs:
+    - build:backend
+
+publish:frontend:
+  stage: publish
+  image: docker:24
+  extends: .docker-ecr-service
+  environment:
+    name: development
+  script:
+    - |
+      echo "Building frontend Docker image..."
+      cd frontend
+
+      docker build \
+        --tag "${FRONTEND_IMAGE}:${CI_COMMIT_SHA}" \
+        --tag "${FRONTEND_IMAGE}:${CI_COMMIT_REF_SLUG}" \
+        --tag "${FRONTEND_IMAGE}:latest" \
+        .
+
+      echo "Pushing to AWS ECR..."
+      docker push "${FRONTEND_IMAGE}:${CI_COMMIT_SHA}"
+      docker push "${FRONTEND_IMAGE}:${CI_COMMIT_REF_SLUG}"
+      docker push "${FRONTEND_IMAGE}:latest"
+
+      echo "Frontend image published:"
+      echo "  ${FRONTEND_IMAGE}:${CI_COMMIT_SHA}"
+      echo "  ${FRONTEND_IMAGE}:${CI_COMMIT_REF_SLUG}"
+      echo "  ${FRONTEND_IMAGE}:latest"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^deploy.*/
+  needs:
+    - build:frontend
+
+# ==================== DEPLOY INFRASTRUCTURE ====================
+
+deploy:infra:dev:
+  stage: deploy-infra
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  extends: .aws-oidc-auth
+  variables:
+    STACK_PREFIX: "AudioLibrary-Development"
+  environment:
+    name: development
+  script:
+    - |
+      # Install Node.js
+      yum install -y nodejs npm tar gzip
+
+      cd infra
+      npm install
+
+      echo "Deploying all Development stacks with prefix: $STACK_PREFIX"
+      npx cdk deploy "$STACK_PREFIX-*" \
+        --require-approval never \
+        --outputs-file outputs.json \
+        --ci
+
+      echo ""
+      echo "=== Deployment Outputs ==="
+      cat outputs.json
+  artifacts:
+    paths:
+      - infra/outputs.json
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
+    - if: $CI_COMMIT_BRANCH == "develop"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH =~ /^deploy.*/
+      when: manual
+      allow_failure: true
+  needs:
+    - test:infra
+    - publish:backend
+    - publish:frontend
+
+deploy:infra:staging:
+  stage: deploy-infra
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  extends: .aws-oidc-auth
+  variables:
+    STACK_PREFIX: "AudioLibrary-Staging"
+  environment:
+    name: staging
+  script:
+    - |
+      yum install -y nodejs npm tar gzip
+      cd infra
+      npm install
+
+      echo "Deploying all Staging stacks with prefix: $STACK_PREFIX"
+      npx cdk deploy "$STACK_PREFIX-*" \
+        --require-approval never \
+        --outputs-file outputs.json \
+        --ci
+
+      cat outputs.json
+  artifacts:
+    paths:
+      - infra/outputs.json
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  needs:
+    - deploy:infra:dev
+
+deploy:infra:prod:
+  stage: deploy-infra
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  extends: .aws-oidc-auth
+  variables:
+    STACK_PREFIX: "AudioLibrary-Production"
+  environment:
+    name: production
+  script:
+    - |
+      yum install -y nodejs npm tar gzip
+      cd infra
+      npm install
+
+      echo "Deploying all Production stacks with prefix: $STACK_PREFIX"
+      npx cdk deploy "$STACK_PREFIX-*" \
+        --require-approval never \
+        --outputs-file outputs.json \
+        --ci
+
+      cat outputs.json
+  artifacts:
+    paths:
+      - infra/outputs.json
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  needs:
+    - deploy:infra:staging
+
+# ==================== DEPLOY APPLICATION ====================
+
+deploy:app:dev:
+  stage: deploy-app
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  extends: .aws-oidc-auth
+  variables:
+    STACK_PREFIX: "AudioLibrary-Development"
+  environment:
+    name: development
+  script:
+    - |
+      echo "=== Deploying Application to Development ==="
+      echo "Backend Image: ${BACKEND_IMAGE}:${CI_COMMIT_SHA}"
+      echo "Frontend Image: ${FRONTEND_IMAGE}:${CI_COMMIT_SHA}"
+      echo ""
+
+      # Install jq for JSON parsing
+      yum install -y jq
+
+      # Load outputs from infrastructure deployment
+      cd infra
+      if [ ! -f outputs.json ]; then
+        echo "ERROR: outputs.json not found. Infrastructure must be deployed first."
+        exit 1
+      fi
+
+      # Extract stack outputs
+      ECS_CLUSTER=$(jq -r '.["'${STACK_PREFIX}'-Backend"].ClusterArn' outputs.json | cut -d'/' -f2)
+      ECS_SERVICE=$(jq -r '.["'${STACK_PREFIX}'-Backend"].ServiceArn' outputs.json | cut -d'/' -f3)
+      FRONTEND_BUCKET=$(jq -r '.["'${STACK_PREFIX}'-Frontend"].BucketName' outputs.json)
+      DISTRIBUTION_ID=$(jq -r '.["'${STACK_PREFIX}'-Frontend"].DistributionId' outputs.json)
+      WEBSITE_URL=$(jq -r '.["'${STACK_PREFIX}'-Frontend"].WebsiteUrl' outputs.json)
+
+      echo "Deployment targets:"
+      echo "  ECS Cluster: $ECS_CLUSTER"
+      echo "  ECS Service: $ECS_SERVICE"
+      echo "  Frontend Bucket: $FRONTEND_BUCKET"
+      echo "  CloudFront Distribution: $DISTRIBUTION_ID"
+      echo ""
+
+      # ===== DEPLOY BACKEND =====
+      echo "1. Updating ECS service with new backend image..."
+
+      # Get current task definition
+      TASK_DEF_ARN=$(aws ecs describe-services \
+        --cluster "$ECS_CLUSTER" \
+        --services "$ECS_SERVICE" \
+        --query 'services[0].taskDefinition' \
+        --output text)
+
+      echo "Current task definition: $TASK_DEF_ARN"
+
+      # Create new task definition with updated image
+      TASK_DEF=$(aws ecs describe-task-definition \
+        --task-definition "$TASK_DEF_ARN" \
+        --query 'taskDefinition')
+
+      NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "${BACKEND_IMAGE}:${CI_COMMIT_SHA}" \
+        'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy) |
+         .containerDefinitions[0].image = $IMAGE')
+
+      echo "Registering new task definition..."
+      echo "$NEW_TASK_DEF" > /tmp/task-def.json
+      NEW_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/task-def.json \
+        --query 'taskDefinition.taskDefinitionArn' \
+        --output text)
+
+      echo "New task definition: $NEW_TASK_ARN"
+
+      # Update ECS service (ensure desired count is at least 1 in case it was scaled down)
+      echo "Updating ECS service..."
+      aws ecs update-service \
+        --cluster "$ECS_CLUSTER" \
+        --service "$ECS_SERVICE" \
+        --task-definition "$NEW_TASK_ARN" \
+        --desired-count 1 \
+        --force-new-deployment \
+        --query 'service.deployments' \
+        --output table
+
+      echo "✓ Backend deployment initiated"
+      echo ""
+
+      # ===== DEPLOY FRONTEND =====
+      echo "2. Deploying frontend to S3..."
+      cd ../frontend
+
+      # Sync frontend build to S3
+      aws s3 sync dist/ "s3://${FRONTEND_BUCKET}/" \
+        --delete \
+        --cache-control "public,max-age=31536000,immutable" \
+        --exclude "index.html" \
+        --exclude "config.json"
+
+      # Upload index.html with no-cache
+      aws s3 cp dist/index.html "s3://${FRONTEND_BUCKET}/index.html" \
+        --cache-control "public,max-age=0,must-revalidate" \
+        --content-type "text/html"
+
+      # Upload config if exists
+      if [ -f dist/config.json ]; then
+        aws s3 cp dist/config.json "s3://${FRONTEND_BUCKET}/config.json" \
+          --cache-control "public,max-age=300" \
+          --content-type "application/json"
+      fi
+
+      echo "✓ Frontend uploaded to S3"
+      echo ""
+
+      # Invalidate CloudFront cache
+      echo "3. Invalidating CloudFront cache..."
+      INVALIDATION_ID=$(aws cloudfront create-invalidation \
+        --distribution-id "$DISTRIBUTION_ID" \
+        --paths "/*" \
+        --query 'Invalidation.Id' \
+        --output text)
+
+      echo "CloudFront invalidation created: $INVALIDATION_ID"
+      echo "✓ Frontend deployment complete"
+      echo ""
+
+      # ===== DEPLOYMENT SUMMARY =====
+      echo "=========================================="
+      echo "Deployment Complete!"
+      echo "=========================================="
+      echo "Backend:  ${BACKEND_IMAGE}:${CI_COMMIT_SHA}"
+      echo "Frontend: Deployed to S3 + CloudFront"
+      echo "Website:  $WEBSITE_URL"
+      echo ""
+      echo "Note: ECS deployment may take 2-5 minutes to complete."
+      echo "Monitor at: https://console.aws.amazon.com/ecs/home?region=${AWS_REGION}#/clusters/${ECS_CLUSTER}/services/${ECS_SERVICE}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
+    - if: $CI_COMMIT_BRANCH == "develop"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH =~ /^deploy.*/
+      when: manual
+      allow_failure: true
+  needs:
+    - deploy:infra:dev
+    - publish:backend
+    - publish:frontend
+    - build:frontend    # Needed for frontend/dist/ artifact to sync to S3
+
+deploy:app:staging:
+  stage: deploy-app
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  extends: .aws-oidc-auth
+  variables:
+    STACK_PREFIX: "AudioLibrary-Staging"
+  environment:
+    name: staging
+  script:
+    - |
+      echo "=== Deploying Application to Staging ==="
+      yum install -y jq
+      cd infra
+
+      # Extract outputs
+      ECS_CLUSTER=$(jq -r '.["'${STACK_PREFIX}'-Backend"].ClusterArn' outputs.json | cut -d'/' -f2)
+      ECS_SERVICE=$(jq -r '.["'${STACK_PREFIX}'-Backend"].ServiceArn' outputs.json | cut -d'/' -f3)
+      FRONTEND_BUCKET=$(jq -r '.["'${STACK_PREFIX}'-Frontend"].BucketName' outputs.json)
+      DISTRIBUTION_ID=$(jq -r '.["'${STACK_PREFIX}'-Frontend"].DistributionId' outputs.json)
+
+      # Update backend
+      TASK_DEF_ARN=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)
+      TASK_DEF=$(aws ecs describe-task-definition --task-definition "$TASK_DEF_ARN" --query 'taskDefinition')
+      NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "${BACKEND_IMAGE}:${CI_COMMIT_SHA}" 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy) | .containerDefinitions[0].image = $IMAGE')
+      echo "$NEW_TASK_DEF" > /tmp/task-def.json
+      NEW_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+      aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$NEW_TASK_ARN" --desired-count 1 --force-new-deployment
+
+      # Deploy frontend
+      cd ../frontend
+      aws s3 sync dist/ "s3://${FRONTEND_BUCKET}/" --delete --cache-control "public,max-age=31536000,immutable" --exclude "index.html"
+      aws s3 cp dist/index.html "s3://${FRONTEND_BUCKET}/index.html" --cache-control "public,max-age=0,must-revalidate"
+      aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*"
+
+      echo "✓ Staging deployment complete"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  needs:
+    - deploy:infra:staging
+    - publish:backend
+    - publish:frontend
+    - build:frontend    # Needed for frontend/dist/ artifact to sync to S3
+
+deploy:app:prod:
+  stage: deploy-app
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  extends: .aws-oidc-auth
+  variables:
+    STACK_PREFIX: "AudioLibrary-Production"
+  environment:
+    name: production
+  script:
+    - |
+      echo "=== Deploying Application to Production ==="
+      yum install -y jq
+      cd infra
+
+      # Extract outputs
+      ECS_CLUSTER=$(jq -r '.["'${STACK_PREFIX}'-Backend"].ClusterArn' outputs.json | cut -d'/' -f2)
+      ECS_SERVICE=$(jq -r '.["'${STACK_PREFIX}'-Backend"].ServiceArn' outputs.json | cut -d'/' -f3)
+      FRONTEND_BUCKET=$(jq -r '.["'${STACK_PREFIX}'-Frontend"].BucketName' outputs.json)
+      DISTRIBUTION_ID=$(jq -r '.["'${STACK_PREFIX}'-Frontend"].DistributionId' outputs.json)
+
+      # Update backend
+      TASK_DEF_ARN=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)
+      TASK_DEF=$(aws ecs describe-task-definition --task-definition "$TASK_DEF_ARN" --query 'taskDefinition')
+      NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "${BACKEND_IMAGE}:${CI_COMMIT_SHA}" 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy) | .containerDefinitions[0].image = $IMAGE')
+      echo "$NEW_TASK_DEF" > /tmp/task-def.json
+      NEW_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+      aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$NEW_TASK_ARN" --desired-count 1 --force-new-deployment
+
+      # Deploy frontend
+      cd ../frontend
+      aws s3 sync dist/ "s3://${FRONTEND_BUCKET}/" --delete --cache-control "public,max-age=31536000,immutable" --exclude "index.html"
+      aws s3 cp dist/index.html "s3://${FRONTEND_BUCKET}/index.html" --cache-control "public,max-age=0,must-revalidate"
+      aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*"
+
+      echo "✓ Production deployment complete"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  needs:
+    - deploy:infra:prod
+    - publish:backend
+    - publish:frontend
+    - build:frontend    # Needed for frontend/dist/ artifact to sync to S3

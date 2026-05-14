@@ -1,0 +1,58 @@
+# Development environment configuration
+# Activated via: SPRING_PROFILES_ACTIVE=dev
+# Used when deployed to AWS development environment
+
+spring:
+  datasource:
+    # When running on ECS, these come from container environment variables
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:audiolib}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USER:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:password}}
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration/default
+
+logging:
+  level:
+    root: INFO
+    com.audiolibrary: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    software.amazon.awssdk: INFO
+    software.amazon.awssdk.request: DEBUG
+  # File logging disabled for containers — CloudWatch captures stdout via awslogs driver
+
+# S3 and CORS Configuration (enabled when running on AWS)
+# On ECS, credentials come from the task IAM role via DefaultCredentialsProvider.
+# access-key and secret-key must be blank to prevent StaticCredentialsProvider
+# from intercepting the ECS task role's temporary credentials.
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:}
+  s3:
+    enabled: ${APP_S3_ENABLED:true}
+    bucket: ${APP_S3_BUCKET:}
+    region: ${APP_S3_REGION:${AWS_REGION:us-east-1}}
+    access-key:
+    secret-key:
+    prefix: audio/
+    staging-prefix: staging/
+    upload-url-expiration-minutes: 60
+    download-url-expiration-minutes: 60
+    max-file-size: 2147483648  # 2GB
+
+# JWT Configuration
+application:
+  security:
+    jwt:
+      secret-key: ${JWT_SECRET_KEY:dev-secret-key-for-local-development-only}
+      expiration: ${JWT_EXPIRATION:86400000}

@@ -1,0 +1,450 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
+import {
+  ArrowLeft,
+  Play,
+  Pause,
+  Heart,
+  ListPlus,
+  Download,
+  Share2,
+  Clock,
+  User,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  VolumeX,
+  Loader2,
+  Check,
+  Bookmark,
+  Gauge,
+} from 'lucide-react';
+import { audioApi } from '../../lib/audioApi';
+import { userLibraryApi } from '../../lib/userLibraryApi';
+import { useAuth } from '../../lib/auth';
+
+const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+export function AudioDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { isAuthenticated } = useAuth();
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Player state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+
+  // Fetch audio details
+  const { data: audio, isLoading } = useQuery({
+    queryKey: ['audio', id],
+    queryFn: () => audioApi.getById(id!),
+    enabled: !!id,
+  });
+
+  // Fetch user status (favorited, in queue)
+  const { data: isFavorited } = useQuery({
+    queryKey: ['audioFavorited', id],
+    queryFn: () => userLibraryApi.isAudioFavorited(id!),
+    enabled: !!id && isAuthenticated,
+  });
+
+  const { data: isInQueue } = useQuery({
+    queryKey: ['audioInQueue', id],
+    queryFn: () => userLibraryApi.isInQueue(id!),
+    enabled: !!id && isAuthenticated,
+  });
+
+  // Fetch saved position
+  const { data: savedPosition } = useQuery({
+    queryKey: ['audioPosition', id],
+    queryFn: () => userLibraryApi.getPlaybackPosition(id!),
+    enabled: !!id && isAuthenticated,
+  });
+
+  // Mutations
+  const favoriteMutation = useMutation({
+    mutationFn: () => isFavorited 
+      ? userLibraryApi.unfavoriteAudio(id!) 
+      : userLibraryApi.favoriteAudio(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['audioFavorited', id] });
+      queryClient.invalidateQueries({ queryKey: ['favoriteAudios'] });
+    },
+  });
+
+  const queueMutation = useMutation({
+    mutationFn: () => isInQueue 
+      ? userLibraryApi.removeFromQueue(id!) 
+      : userLibraryApi.addToQueue(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['audioInQueue', id] });
+      queryClient.invalidateQueries({ queryKey: ['userQueue'] });
+    },
+  });
+
+  // Audio event handlers
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration);
+      // Resume from saved position
+      if (savedPosition && savedPosition > 0) {
+        audio.currentTime = savedPosition;
+      }
+    };
+    const handleEnded = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [savedPosition]);
+
+  // Save position periodically
+  useEffect(() => {
+    if (!isAuthenticated || !id || !isPlaying) return;
+
+    const interval = setInterval(() => {
+      if (audioRef.current) {
+        userLibraryApi.updatePlaybackPosition(id, Math.floor(audioRef.current.currentTime));
+      }
+    }, 10000); // Save every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, id, isPlaying]);
+
+  // Save position on pause/unmount
+  useEffect(() => {
+    return () => {
+      if (isAuthenticated && id && audioRef.current) {
+        userLibraryApi.updatePlaybackPosition(id, Math.floor(audioRef.current.currentTime));
+      }
+    };
+  }, [isAuthenticated, id]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
+      audio.pause();
+      if (isAuthenticated && id) {
+        userLibraryApi.updatePlaybackPosition(id, Math.floor(audio.currentTime));
+      }
+    } else {
+      audio.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    setCurrentTime(time);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const vol = parseFloat(e.target.value);
+    setVolume(vol);
+    if (audioRef.current) {
+      audioRef.current.volume = vol;
+    }
+    setIsMuted(vol === 0);
+  };
+
+  const toggleMute = () => {
+    if (audioRef.current) {
+      audioRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+    if (isAuthenticated) {
+      userLibraryApi.updatePlaybackSpeed(speed);
+    }
+    setShowSpeedMenu(false);
+  };
+
+  const skip = (seconds: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = Math.max(0, Math.min(duration, audioRef.current.currentTime + seconds));
+    }
+  };
+
+  const handleDownload = () => {
+    if (id) {
+      window.open(`/api/v1/audio/${id}/download`, '_blank');
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 flex items-center justify-center">
+        <Loader2 className="w-12 h-12 text-accent-600 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!audio) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">Audio not found</h2>
+          <button
+            onClick={() => navigate('/library')}
+            className="text-accent-600 hover:text-accent-500"
+          >
+            Back to Library
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
+      {/* Hidden Audio Element */}
+      <audio
+        ref={audioRef}
+        src={audioApi.getStreamUrl(id!)}
+        preload="metadata"
+      />
+
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-200 shadow-sm">
+        <div className="max-w-4xl mx-auto px-6 py-4">
+          <button
+            onClick={() => navigate('/library')}
+            className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            Back to Library
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-4xl mx-auto px-6 py-8">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-8"
+        >
+          {/* Audio Info */}
+          <div className="flex flex-col md:flex-row gap-8">
+            {/* Cover Art */}
+            <div className="w-full md:w-72 aspect-square rounded-2xl bg-gradient-to-br from-accent-600 to-primary-700 flex items-center justify-center shadow-2xl shadow-accent-500/20">
+              <Play className="w-24 h-24 text-white/30" />
+            </div>
+
+            {/* Info */}
+            <div className="flex-1 space-y-4">
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900">{audio.title}</h1>
+
+              {audio.speaker && (
+                <div className="flex items-center gap-2 text-slate-700">
+                  <User className="w-5 h-5" />
+                  <span className="text-lg">{audio.speaker}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-4 text-slate-500">
+                <span className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  {formatTime(audio.durationSeconds)}
+                </span>
+                {audio.topic && (
+                  <span className="px-3 py-1 rounded-full bg-accent-100 text-accent-700 text-sm">
+                    {audio.topic}
+                  </span>
+                )}
+              </div>
+
+              {audio.description && (
+                <p className="text-slate-600 leading-relaxed">{audio.description}</p>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-3 pt-4">
+                {isAuthenticated && (
+                  <>
+                    <button
+                      onClick={() => favoriteMutation.mutate()}
+                      disabled={favoriteMutation.isPending}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                        isFavorited
+                          ? 'bg-rose-100 text-rose-600 hover:bg-rose-200'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Heart className={`w-5 h-5 ${isFavorited ? 'fill-current' : ''}`} />
+                      {isFavorited ? 'Favorited' : 'Favorite'}
+                    </button>
+
+                    <button
+                      onClick={() => queueMutation.mutate()}
+                      disabled={queueMutation.isPending}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                        isInQueue
+                          ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {isInQueue ? <Check className="w-5 h-5" /> : <ListPlus className="w-5 h-5" />}
+                      {isInQueue ? 'In Queue' : 'Add to Queue'}
+                    </button>
+                  </>
+                )}
+
+                <button
+                  onClick={handleDownload}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                >
+                  <Download className="w-5 h-5" />
+                  Download
+                </button>
+
+                <button
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                  onClick={() => navigator.clipboard.writeText(window.location.href)}
+                >
+                  <Share2 className="w-5 h-5" />
+                  Share
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Player */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6 shadow-lg">
+            {/* Progress Bar */}
+            <div className="space-y-2">
+              <input
+                type="range"
+                min="0"
+                max={duration || 100}
+                value={currentTime}
+                onChange={handleSeek}
+                className="w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-accent-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+              />
+              <div className="flex justify-between text-sm text-slate-500">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center justify-center gap-6">
+              <button
+                onClick={() => skip(-15)}
+                className="p-3 rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                title="Rewind 15 seconds"
+              >
+                <SkipBack className="w-6 h-6" />
+              </button>
+
+              <button
+                onClick={togglePlay}
+                className="p-5 rounded-full bg-gradient-to-r from-accent-600 to-primary-700 text-white hover:opacity-90 transition-opacity shadow-lg shadow-accent-500/30"
+              >
+                {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
+              </button>
+
+              <button
+                onClick={() => skip(30)}
+                className="p-3 rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                title="Forward 30 seconds"
+              >
+                <SkipForward className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Secondary Controls */}
+            <div className="flex items-center justify-between">
+              {/* Volume */}
+              <div className="flex items-center gap-3">
+                <button onClick={toggleMute} className="text-slate-500 hover:text-slate-700">
+                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </button>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={isMuted ? 0 : volume}
+                  onChange={handleVolumeChange}
+                  className="w-24 h-1 bg-slate-200 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-accent-600 [&::-webkit-slider-thumb]:rounded-full"
+                />
+              </div>
+
+              {/* Playback Speed */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-sm"
+                >
+                  <Gauge className="w-4 h-4" />
+                  {playbackSpeed}x
+                </button>
+
+                {showSpeedMenu && (
+                  <div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg border border-slate-200 shadow-xl overflow-hidden">
+                    {PLAYBACK_SPEEDS.map((speed) => (
+                      <button
+                        key={speed}
+                        onClick={() => handleSpeedChange(speed)}
+                        className={`block w-full px-4 py-2 text-sm text-left hover:bg-slate-100 transition-colors ${
+                          playbackSpeed === speed ? 'text-accent-600 bg-accent-50' : 'text-slate-700'
+                        }`}
+                      >
+                        {speed}x
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Resume indicator */}
+            {savedPosition && savedPosition > 0 && currentTime === 0 && (
+              <div className="text-center text-sm text-slate-500">
+                Resume from {formatTime(savedPosition)}
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </main>
+    </div>
+  );
+}
+

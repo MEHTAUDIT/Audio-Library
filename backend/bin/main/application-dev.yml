@@ -1,0 +1,53 @@
+# Development environment configuration
+# Activated via: SPRING_PROFILES_ACTIVE=dev
+# Used when deployed to AWS development environment
+
+spring:
+  datasource:
+    # When running on ECS, these come from container environment variables
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:audiolib}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USER:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:password}}
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+logging:
+  level:
+    root: INFO
+    com.audiolibrary: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    software.amazon.awssdk: INFO
+    software.amazon.awssdk.request: DEBUG
+  file:
+    name: logs/audio-library-dev.log
+    max-size: 100MB
+    max-history: 30
+
+# S3 Configuration (enabled when running on AWS)
+app:
+  s3:
+    enabled: ${APP_S3_ENABLED:false}
+    bucket: ${APP_S3_BUCKET:}
+    region: ${APP_S3_REGION:${AWS_REGION:us-east-1}}
+    prefix: audio/
+    staging-prefix: staging/
+    upload-url-expiration-minutes: 60
+    download-url-expiration-minutes: 60
+    max-file-size: 2147483648  # 2GB
+
+# JWT Configuration
+application:
+  security:
+    jwt:
+      secret-key: ${JWT_SECRET_KEY:dev-secret-key-for-local-development-only}
+      expiration: ${JWT_EXPIRATION:86400000}

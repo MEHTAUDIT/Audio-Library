@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: audio-library-backend
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 500MB
+      max-request-size: 500MB
+  datasource:
+    url: jdbc:h2:mem:audiolib;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    open-in-view: false
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+    hibernate:
+      ddl-auto: create
+  flyway:
+    enabled: false
+
+server:
+  port: 8080
+  tomcat:
+    max-swallow-size: 500MB
+    max-http-form-post-size: 500MB
+
+logging:
+  level:
+    com.audiolibrary: DEBUG
+    org.springframework.security: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+app:
+  upload:
+    dir: uploads
+
+# ==================== SECURITY ====================
+# WARNING: This is a development-only secret. Never use in production!
+application:
+  security:
+    jwt:
+      secret-key: 6C6F63616C2D6465762D6F6E6C792D7365637265742D6B65792D646F2D6E6F742D7573652D696E2D70726F64756374696F6E2D656E7669726F6E6D656E74
+      expiration: 86400000  # 24 hours

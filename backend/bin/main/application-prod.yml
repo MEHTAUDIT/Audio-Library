@@ -1,0 +1,88 @@
+# Production configuration
+# Activate with: --spring.profiles.active=prod
+# or set environment variable: SPRING_PROFILES_ACTIVE=prod
+
+spring:
+  application:
+    name: audio-library-backend
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 500MB
+      max-request-size: 500MB
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/audiolib}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        multiTenancy: SCHEMA
+        format_sql: false
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+server:
+  port: ${PORT:8080}
+  tomcat:
+    max-swallow-size: 500MB
+    max-http-form-post-size: 500MB
+
+logging:
+  level:
+    root: INFO
+    com.audiolibrary: INFO
+    org.springframework.web: WARN
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+    software.amazon.awssdk: WARN
+    software.amazon.awssdk.request: WARN
+  file:
+    name: /var/log/audio-library/audio-library-prod.log
+    max-size: 100MB
+    max-history: 90
+    total-size-cap: 10GB
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} %X{tenant_id:--} %X{user_id:--} %X{trace_id:--} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+# ==================== S3 CONFIGURATION ====================
+# All values come from environment variables injected by ECS
+# When running on AWS (ECS Fargate), IAM task roles provide S3 access automatically
+# No AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY needed!
+app:
+  s3:
+    enabled: ${APP_S3_ENABLED:true}
+    bucket: ${APP_S3_BUCKET}
+    region: ${APP_S3_REGION:${AWS_REGION:us-east-1}}
+    # Note: Credentials are provided by ECS task IAM role (not env vars)
+    prefix: audio/
+    staging-prefix: staging/
+    upload-url-expiration-minutes: 60
+    download-url-expiration-minutes: 60
+    max-file-size: 2147483648  # 2GB
+
+  upload:
+    dir: /tmp/uploads  # Fallback for local file operations
+
+# ==================== SECURITY ====================
+# JWT secret MUST be provided via environment variable in production
+# Generate a secure key: openssl rand -hex 32
+application:
+  security:
+    jwt:
+      secret-key: ${JWT_SECRET_KEY}
+      expiration: ${JWT_EXPIRATION:86400000}  # 24 hours default

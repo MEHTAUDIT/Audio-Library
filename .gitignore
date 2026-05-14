@@ -1,0 +1,36 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local configuration (machine-specific, not checked in)
+local.properties
+gradle.properties.local
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node (frontend)
+node_modules/
+dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test output
+test_registration.ps1
+test_login.ps1
+

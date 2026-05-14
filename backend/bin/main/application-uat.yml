@@ -1,0 +1,44 @@
+# UAT/Staging environment configuration
+# Activated via: SPRING_PROFILES_ACTIVE=uat
+# Used when deployed to AWS staging environment
+
+spring:
+  datasource:
+    # Injected by ECS from Secrets Manager
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME:audiolibrary}}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+logging:
+  level:
+    com.audiolibrary: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+
+# S3 Configuration
+app:
+  s3:
+    enabled: ${APP_S3_ENABLED:true}
+    bucket: ${APP_S3_BUCKET}
+    region: ${APP_S3_REGION:${AWS_REGION:us-east-1}}
+    prefix: audio/
+    staging-prefix: staging/
+    upload-url-expiration-minutes: 60
+    download-url-expiration-minutes: 60
+    max-file-size: 2147483648  # 2GB
+
+# JWT Configuration
+application:
+  security:
+    jwt:
+      secret-key: ${JWT_SECRET_KEY}
+      expiration: ${JWT_EXPIRATION:86400000}

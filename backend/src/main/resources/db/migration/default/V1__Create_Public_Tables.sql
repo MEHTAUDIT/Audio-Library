@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS tenants (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    subdomain VARCHAR(255) UNIQUE NOT NULL,
+    custom_domain VARCHAR(255),
+    schema_name VARCHAR(255) UNIQUE,
+    active BOOLEAN DEFAULT TRUE,
+    subscription_plan VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

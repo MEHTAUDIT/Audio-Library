@@ -1,0 +1,30 @@
+# Handle line endings automatically for files detected as text
+# and leave all files detected as binary untouched.
+* text=auto
+
+# Force Unix-style line endings for shell scripts
+*.sh text eol=lf
+**/gradlew text eol=lf
+
+# Force Windows-style line endings for batch files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Denote all files that are truly binary and should not be modified.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp3 binary
+*.mp4 binary
+*.m4a binary
+*.wav binary
+*.flac binary
+*.ogg binary
+*.jar binary
+*.class binary
+
+# Mark gradlew as executable
+backend/gradlew text eol=lf
+

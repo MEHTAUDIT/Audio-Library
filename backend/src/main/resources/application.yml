@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: audio-library-backend
+  profiles:
+    active: local # Default to local profile if none specified
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 500MB
+      max-request-size: 500MB
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        multiTenancy: SCHEMA
+    hibernate:
+      ddl-auto: none
+
+server:
+  port: 8080
+  tomcat:
+    max-swallow-size: 500MB
+    max-http-form-post-size: 500MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,loggers
+  endpoint:
+    health:
+      show-details: when-authorized
+    loggers:
+      enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.audiolibrary: DEBUG
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    software.amazon.awssdk: INFO
+    software.amazon.awssdk.request: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{36}) %X{tenant_id:--} %X{user_id:--} %X{trace_id:--} - %msg%n"
+  file:
+    name: logs/audio-library.log
+    max-size: 100MB
+    max-history: 30
+    total-size-cap: 5GB
+
+# S3 Storage Configuration (disabled by default, uses local storage)
+# To enable S3, set app.s3.enabled=true and configure bucket/credentials
+app:
+  s3:
+    enabled: false
+    region: ${AWS_REGION:us-east-1}
+    bucket: ${AWS_S3_BUCKET:}
+    access-key: ${AWS_ACCESS_KEY_ID:}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:}
+    prefix: audio/
+    upload-url-expiration-minutes: 60
+    download-url-expiration-minutes: 60
+    max-file-size: 2147483648  # 2GB
+
+# ==================== SECURITY ====================
+# JWT Configuration - MUST be overridden in environment or profile-specific config
+# Generate a secure key for production: openssl rand -hex 32
+application:
+  security:
+    jwt:
+      secret-key: ${JWT_SECRET_KEY:}
+      expiration: ${JWT_EXPIRATION:86400000}  # 24 hours
+

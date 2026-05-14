@@ -1,0 +1,5 @@
+.gitlab-ci.yml @karanoble.developer
+.gitlab/ @karanoble.developer
+infra/iam-deployment-policy.json @karanoble.developer
+infra/iam-gitlab-oidc-trust-policy.json @karanoble.developer
+infra/ @karanoble.developer

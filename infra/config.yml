@@ -1,0 +1,167 @@
+# =============================================================================
+# AUDIO LIBRARY INFRASTRUCTURE CONFIGURATION
+# =============================================================================
+#
+# This file contains all environment-specific configuration for the CDK stacks.
+# Modify this file instead of app.ts when changing environment settings.
+#
+# Usage:
+#   - Update values below for your environments
+#   - Run: cdk deploy "AudioLibrary-Development-*"
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GLOBAL SETTINGS
+# -----------------------------------------------------------------------------
+global:
+  # Application name (used in resource naming)
+  appName: audio-library
+  
+  # Default AWS region (can be overridden per environment)
+  defaultRegion: us-east-1
+
+# -----------------------------------------------------------------------------
+# DEVELOPMENT ENVIRONMENT - HYBRID PHASE 1 (Cost-Optimized)
+# -----------------------------------------------------------------------------
+# Cost Target: ~$10-15/month (first 12 months), ~$25-30/month after
+# Strategy: Public subnets (no NAT), minimal resources, auto-shutdown
+# -----------------------------------------------------------------------------
+development:
+  # CORS allowed origins for API and S3
+  allowedOrigins:
+    - http://localhost:3000
+    - http://localhost:5173    # Vite default
+    - http://127.0.0.1:3000
+    - http://127.0.0.1:5173
+    - https://d1r1ho346qw41c.cloudfront.net    # CloudFront distribution
+
+  # Email addresses for CloudWatch alerts (leave empty for no alerts)
+  alertEmails: []
+  # alertEmails:
+  #   - dev-alerts@yourcompany.com
+
+  # Custom domain configuration (optional)
+  # Uncomment and configure to use a custom domain
+  # domainName: dev.yourdomain.com
+  # certificateArn: arn:aws:acm:us-east-1:123456789:certificate/abc-123
+
+  # Infrastructure sizing
+  networking:
+    maxAzs: 2
+    natGateways: 0           # PHASE 1: No NAT Gateway (saves $32/month) - use public subnets
+
+  database:
+    instanceClass: t3        # t3, t4g, m5, r5, etc.
+    instanceSize: micro      # FREE for first 12 months, then $12/month
+    allocatedStorage: 20     # GB (within free tier)
+    maxAllocatedStorage: 50  # GB (for autoscaling)
+    backupRetentionDays: 1   # PHASE 1: Minimal backups to save costs
+    multiAz: false           # PHASE 1: Single-AZ only
+
+  backend:
+    cpu: 256                 # 256, 512, 1024, 2048, 4096
+    memory: 512              # MB
+    desiredCount: 1          # Number of containers
+    assignPublicIp: true     # PHASE 1: Deploy to public subnets (no NAT needed)
+    imageUri: 067270456876.dkr.ecr.us-east-1.amazonaws.com/audio-library-backend:latest
+
+  # Auto-shutdown schedule to save costs during off-hours
+  autoShutdown:
+    enabled: true            # PHASE 1: Auto-shutdown saves ~75% on compute costs
+    stopCron: "0 20 ? * MON-FRI *"    # Stop at 8 PM on weekdays (UTC)
+    startCron: "0 8 ? * MON-FRI *"    # Start at 8 AM on weekdays (UTC)
+    timezone: "America/New_York"    # Adjust to your timezone
+
+  jumpHost:
+    enabled: true
+
+  storage:
+    stagingRetentionDays: 3  # Days before deleting abandoned uploads
+    # glacierTransitionDays: null  # Disabled for dev
+
+# -----------------------------------------------------------------------------
+# STAGING ENVIRONMENT
+# -----------------------------------------------------------------------------
+staging:
+  allowedOrigins:
+    - https://staging.yourdomain.com
+    - http://localhost:3000  # For testing against staging
+
+  alertEmails: []
+  # alertEmails:
+  #   - staging-alerts@yourcompany.com
+
+  # Custom domain (optional)
+  # domainName: staging.yourdomain.com
+  # certificateArn: arn:aws:acm:us-east-1:123456789:certificate/def-456
+
+  networking:
+    maxAzs: 2
+    natGateways: 1
+
+  database:
+    instanceClass: t3
+    instanceSize: small
+    allocatedStorage: 20
+    maxAllocatedStorage: 100
+    backupRetentionDays: 14
+
+  jumpHost:
+    enabled: true
+
+  backend:
+    cpu: 512
+    memory: 1024
+    desiredCount: 2
+    imageUri: 067270456876.dkr.ecr.us-east-1.amazonaws.com/audio-library-backend:latest
+
+  storage:
+    stagingRetentionDays: 7
+    # glacierTransitionDays: null  # Disabled for staging
+
+# -----------------------------------------------------------------------------
+# PRODUCTION ENVIRONMENT
+# -----------------------------------------------------------------------------
+production:
+  allowedOrigins:
+    - https://yourdomain.com
+    - https://www.yourdomain.com
+
+  # IMPORTANT: Configure alert emails for production!
+  alertEmails: []
+  # alertEmails:
+  #   - ops@yourcompany.com
+  #   - oncall@yourcompany.com
+
+  # Custom domain (recommended for production)
+  # domainName: yourdomain.com
+  # certificateArn: arn:aws:acm:us-east-1:123456789:certificate/ghi-789
+
+  networking:
+    maxAzs: 3                # 3 AZs for high availability
+    natGateways: 2           # 2 NAT gateways for HA
+
+  database:
+    instanceClass: t3
+    instanceSize: medium     # Larger for production
+    allocatedStorage: 50
+    maxAllocatedStorage: 200
+    backupRetentionDays: 30
+    multiAz: true            # Enable Multi-AZ for failover
+
+  jumpHost:
+    enabled: true
+
+  backend:
+    cpu: 1024
+    memory: 2048
+    desiredCount: 2
+    minCapacity: 2           # Auto-scaling minimum
+    maxCapacity: 10          # Auto-scaling maximum
+    imageUri: 067270456876.dkr.ecr.us-east-1.amazonaws.com/audio-library-backend:latest
+
+  storage:
+    stagingRetentionDays: 7
+    glacierTransitionDays: 365  # Move old files to Glacier after 1 year
+
