@@ -16,7 +16,7 @@ import {
   User,
   X
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
@@ -30,6 +30,9 @@ export function StagingPage() {
   const [editForm, setEditForm] = useState<AudioUpdateRequest>({});
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  // for progress bar [audio]
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   const { data: stagingAudio, isLoading } = useQuery({
     queryKey: ['stagingAudio'],
@@ -121,6 +124,37 @@ export function StagingPage() {
   const saveEdit = (id: string) => {
     updateMutation.mutate({ id, data: editForm });
   };
+  // time formatter for progress bar
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+
+    return `${mins}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  };
+  // Listen to audio events and update current time/duration for progress bar
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateTime = () => {
+      setCurrentTime(audio.currentTime);
+    };
+
+    const loadMetadata = () => {
+      setDuration(audio.duration);
+    };
+
+    audio.addEventListener("timeupdate", updateTime);
+    audio.addEventListener("loadedmetadata", loadMetadata);
+
+    return () => {
+      audio.removeEventListener("timeupdate", updateTime);
+      audio.removeEventListener("loadedmetadata", loadMetadata);
+    };
+  }, []);
+
 
   return (
     <div className="space-y-6">
@@ -304,7 +338,9 @@ export function StagingPage() {
                                 )}
                                 <span className="flex items-center gap-1">
                                   <Play className="w-3.5 h-3.5" />
-                                  {formatDuration(audio.durationSeconds)}
+                                  {playingId === audio.id
+                                  ? formatTime(duration)
+                                  : formatTime(audio.durationSeconds)}
                                 </span>
                               </div>
                             </div>
@@ -316,7 +352,31 @@ export function StagingPage() {
                               {audio.description}
                             </p>
                           )}
+                          {/* Progress Bar */}
+                          {playingId === audio.id && (
+                            <>
+                              <input
+                                type="range"
+                                min={0}
+                                max={duration || 0}
+                                value={currentTime}
+                                onChange={(e) => {
+                                  const audio = audioRef.current;
+                                  if (!audio) return;
 
+                                  const newTime = Number(e.target.value);
+                                  audio.currentTime = newTime;
+                                  setCurrentTime(newTime);
+                                }}
+                                className="w-full"
+                              />
+
+                              <div className="flex justify-between text-sm text-gray-500">
+                                <span>{formatTime(currentTime)}</span>
+                                <span>{formatTime(duration)}</span>
+                              </div>
+                            </>
+                          )}
                           {/* Actions */}
                           <div className="flex items-center gap-2 mt-4">
                             <Tooltip>
