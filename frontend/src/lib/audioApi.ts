@@ -1,5 +1,5 @@
-import { api } from './api';
 import type { Audio, AudioStats, AudioUpdateRequest } from '../types/audio';
+import { api } from './api';
 
 export interface AudioUploadData {
   file: File;
@@ -60,7 +60,7 @@ export const audioApi = {
 
   // Get audio stream URL
   getStreamUrl: (id: string): string => {
-    return `/api/v1/audio/${id}/stream`;
+    return `http://localhost:8080/api/v1/audio/${id}/stream`; // can set here env var for base url...
   },
 
   // Update audio metadata

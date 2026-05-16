@@ -1,30 +1,28 @@
-import React, { useState, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  FileAudio,
-  Clock,
   CheckCircle,
-  Trash2,
+  Clock,
   Edit3,
-  MoreVertical,
-  Search,
+  FileAudio,
   Filter,
-  Play,
-  Pause,
-  User,
-  Tag,
   Loader2,
-  X,
+  Pause,
+  Play,
   Save,
-  Volume2,
+  Search,
+  Tag,
+  Trash2,
+  User,
+  X
 } from 'lucide-react';
-import { audioApi } from '../../lib/audioApi';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { useRef, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
+import { audioApi } from '../../lib/audioApi';
 import type { Audio, AudioUpdateRequest } from '../../types/audio';
-
+import { api } from '../../lib/api';
 export function StagingPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,7 +90,7 @@ export function StagingPage() {
     });
   };
 
-  const togglePlay = (audio: Audio) => {
+  const togglePlay = async (audio: Audio) => {
     const audioElement = audioRef.current;
     if (!audioElement) return;
 
@@ -100,10 +98,23 @@ export function StagingPage() {
       audioElement.pause();
       setPlayingId(null);
     } else {
-      const streamUrl = audioApi.getStreamUrl(audio.id);
-      audioElement.src = streamUrl;
-      audioElement.play().catch(console.error);
-      setPlayingId(audio.id);
+      try {
+        const response = await api.get(
+          `/audio/${audio.id}/stream`,
+          {
+            responseType: "blob",
+          }
+        );
+
+        const audioUrl = URL.createObjectURL(response.data);
+
+        audioElement.src = audioUrl;
+        await audioElement.play();
+
+        setPlayingId(audio.id);
+      } catch (error) {
+        console.error("Audio playback error:", error);
+      }
     }
   };
 
