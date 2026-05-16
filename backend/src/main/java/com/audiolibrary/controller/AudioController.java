@@ -253,4 +253,48 @@ public class AudioController {
         audioService.deleteAudio(id);
         return ResponseEntity.noContent().build();
     }
+
+    // ==================== BULK ACTION ENDPOINTS ====================
+
+    @Operation(summary = "Bulk publish audio",
+            description = "Publish multiple audio files at once (DRAFT → PUBLISHED). " +
+                    "Each file is processed independently — one failure does not block others. Requires ADMIN role.")
+    @PostMapping("/bulk-publish")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<AudioService.BulkActionResult> bulkPublish(
+            @RequestBody List<UUID> audioIds) {
+
+        if (audioIds == null || audioIds.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(audioService.bulkPublish(audioIds));
+    }
+
+    @Operation(summary = "Bulk unpublish audio",
+            description = "Unpublish multiple audio files at once (PUBLISHED → DRAFT). " +
+                    "Each file is processed independently. Requires ADMIN role.")
+    @PostMapping("/bulk-unpublish")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<AudioService.BulkActionResult> bulkUnpublish(
+            @RequestBody List<UUID> audioIds) {
+
+        if (audioIds == null || audioIds.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(audioService.bulkUnpublish(audioIds));
+    }
+
+    @Operation(summary = "Bulk archive audio",
+            description = "Archive multiple audio files at once (any status → ARCHIVED). " +
+                    "Each file is processed independently. Requires ADMIN role.")
+    @PostMapping("/bulk-archive")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<AudioService.BulkActionResult> bulkArchive(
+            @RequestBody List<UUID> audioIds) {
+
+        if (audioIds == null || audioIds.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(audioService.bulkArchive(audioIds));
+    }
 }

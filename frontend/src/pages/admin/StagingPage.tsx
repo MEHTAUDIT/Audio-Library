@@ -7,7 +7,6 @@ import {
   CheckCircle,
   Trash2,
   Edit3,
-  MoreVertical,
   Search,
   Filter,
   Play,
@@ -17,13 +16,16 @@ import {
   Loader2,
   X,
   Save,
-  Volume2,
+  CheckSquare,
+  Square,
+  Minus,
+  Archive,
 } from 'lucide-react';
 import { audioApi } from '../../lib/audioApi';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
-import type { Audio, AudioUpdateRequest } from '../../types/audio';
+import type { Audio, AudioUpdateRequest, BulkActionResult } from '../../types/audio';
 
 export function StagingPage() {
   const queryClient = useQueryClient();
@@ -31,6 +33,8 @@ export function StagingPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<AudioUpdateRequest>({});
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkResult, setBulkResult] = useState<BulkActionResult | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const { data: stagingAudio, isLoading } = useQuery({
@@ -65,11 +69,77 @@ export function StagingPage() {
     },
   });
 
+  const bulkPublishMutation = useMutation({
+    mutationFn: audioApi.bulkPublish,
+    onSuccess: (result) => {
+      setBulkResult(result);
+      setSelectedIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
+      queryClient.invalidateQueries({ queryKey: ['audioStats'] });
+      queryClient.invalidateQueries({ queryKey: ['recentDrafts'] });
+      queryClient.invalidateQueries({ queryKey: ['recentPublished'] });
+      // Auto-dismiss result after 5 seconds
+      setTimeout(() => setBulkResult(null), 5000);
+    },
+  });
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: audioApi.bulkArchive,
+    onSuccess: (result) => {
+      setBulkResult(result);
+      setSelectedIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
+      queryClient.invalidateQueries({ queryKey: ['audioStats'] });
+      setTimeout(() => setBulkResult(null), 5000);
+    },
+  });
+
   const filteredAudio = stagingAudio?.filter((audio) =>
     audio.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     audio.speaker?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     audio.topic?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // ── Selection helpers ──
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!filteredAudio) return;
+    if (selectedIds.size === filteredAudio.length) {
+      // Deselect all
+      setSelectedIds(new Set());
+    } else {
+      // Select all visible
+      setSelectedIds(new Set(filteredAudio.map((a) => a.id)));
+    }
+  };
+
+  const isAllSelected = filteredAudio && filteredAudio.length > 0 && selectedIds.size === filteredAudio.length;
+  const isSomeSelected = selectedIds.size > 0 && !isAllSelected;
+  const hasSelection = selectedIds.size > 0;
+
+  const handleBulkPublish = () => {
+    if (selectedIds.size === 0) return;
+    bulkPublishMutation.mutate(Array.from(selectedIds));
+  };
+
+  const handleBulkArchive = () => {
+    if (selectedIds.size === 0) return;
+    if (confirm(`Are you sure you want to archive ${selectedIds.size} audio file(s)?`)) {
+      bulkArchiveMutation.mutate(Array.from(selectedIds));
+    }
+  };
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -111,6 +181,8 @@ export function StagingPage() {
     updateMutation.mutate({ id, data: editForm });
   };
 
+  const isBulkLoading = bulkPublishMutation.isPending || bulkArchiveMutation.isPending;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -135,13 +207,61 @@ export function StagingPage() {
         </Badge>
       </motion.div>
 
-      {/* Search & Filter */}
+      {/* Bulk Result Toast */}
+      <AnimatePresence>
+        {bulkResult && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="rounded-lg border p-4 flex items-center justify-between"
+            style={{
+              backgroundColor: bulkResult.failedCount > 0 ? '#FEF2F2' : '#F0FDF4',
+              borderColor: bulkResult.failedCount > 0 ? '#FECACA' : '#BBF7D0',
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <CheckCircle
+                className="w-5 h-5"
+                style={{ color: bulkResult.failedCount > 0 ? '#DC2626' : '#16A34A' }}
+              />
+              <span className="text-sm font-medium">
+                Bulk {bulkResult.action}: {bulkResult.successCount} succeeded
+                {bulkResult.skippedCount > 0 && `, ${bulkResult.skippedCount} skipped`}
+                {bulkResult.failedCount > 0 && `, ${bulkResult.failedCount} failed`}
+              </span>
+            </div>
+            <button onClick={() => setBulkResult(null)} className="p-1 rounded hover:bg-black/5">
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Search & Filter + Select All */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="flex flex-col sm:flex-row gap-4"
+        className="flex flex-col sm:flex-row gap-4 items-center"
       >
+        {/* Select All Checkbox */}
+        {filteredAudio && filteredAudio.length > 0 && (
+          <button
+            onClick={toggleSelectAll}
+            className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors text-sm font-medium"
+          >
+            {isAllSelected ? (
+              <CheckSquare className="w-4 h-4 text-violet-600" />
+            ) : isSomeSelected ? (
+              <Minus className="w-4 h-4 text-violet-600" />
+            ) : (
+              <Square className="w-4 h-4" />
+            )}
+            {isAllSelected ? 'Deselect all' : 'Select all'}
+          </button>
+        )}
+
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input
@@ -179,7 +299,13 @@ export function StagingPage() {
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ delay: index * 0.05 }}
               >
-                <Card className="hover:shadow-md transition-shadow">
+                <Card
+                  className={`hover:shadow-md transition-all ${
+                    selectedIds.has(audio.id)
+                      ? 'ring-2 ring-violet-500 bg-violet-50/50'
+                      : ''
+                  }`}
+                >
                   <CardContent className="p-5">
                     {editingId === audio.id ? (
                       // Edit Mode
@@ -258,6 +384,18 @@ export function StagingPage() {
                     ) : (
                       // View Mode
                       <div className="flex items-start gap-4">
+                        {/* Checkbox */}
+                        <button
+                          onClick={() => toggleSelect(audio.id)}
+                          className="mt-3 flex-shrink-0"
+                        >
+                          {selectedIds.has(audio.id) ? (
+                            <CheckSquare className="w-5 h-5 text-violet-600" />
+                          ) : (
+                            <Square className="w-5 h-5 text-slate-300 hover:text-slate-500" />
+                          )}
+                        </button>
+
                         {/* Play Button */}
                         <button
                           onClick={() => togglePlay(audio)}
@@ -385,6 +523,59 @@ export function StagingPage() {
         </motion.div>
       )}
 
+      {/* Floating Bulk Action Bar */}
+      <AnimatePresence>
+        {hasSelection && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+          >
+            <div className="flex items-center gap-4 px-6 py-3 rounded-xl bg-slate-900 text-white shadow-2xl">
+              <span className="text-sm font-medium">
+                {selectedIds.size} selected
+              </span>
+
+              <div className="w-px h-6 bg-slate-700" />
+
+              <button
+                onClick={handleBulkPublish}
+                disabled={isBulkLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 transition-colors disabled:opacity-50"
+              >
+                {bulkPublishMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-4 h-4" />
+                )}
+                Publish all
+              </button>
+
+              <button
+                onClick={handleBulkArchive}
+                disabled={isBulkLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-600 transition-colors disabled:opacity-50"
+              >
+                {bulkArchiveMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Archive className="w-4 h-4" />
+                )}
+                Archive all
+              </button>
+
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="p-2 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Hidden Audio Element */}
       <audio
         ref={audioRef}
@@ -394,4 +585,3 @@ export function StagingPage() {
     </div>
   );
 }
-

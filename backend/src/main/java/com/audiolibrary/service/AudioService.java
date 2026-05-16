@@ -11,8 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -268,5 +267,135 @@ public class AudioService {
         private long archivedCount;
         private long totalCount;
     }
-}
 
+    /**
+     * Bulk publish audio files (DRAFT → PUBLISHED).
+     * Processes each ID independently — one failure does not block others.
+     */
+    @Transactional
+    public BulkActionResult bulkPublish(List<UUID> audioIds) {
+        log.info("Bulk publish requested for {} audio files", audioIds.size());
+        return executeBulkAction(audioIds, "publish", audio -> {
+            if (audio.getStatus() == Audio.Status.PUBLISHED) {
+                return "Already published";
+            }
+            if (audio.isDeleted()) {
+                return "Audio is deleted";
+            }
+            audio.setStatus(Audio.Status.PUBLISHED);
+            audio.setPublishedAt(LocalDateTime.now());
+            audioRepository.save(audio);
+            return null; // null = success
+        });
+    }
+
+    /**
+     * Bulk unpublish audio files (PUBLISHED → DRAFT).
+     */
+    @Transactional
+    public BulkActionResult bulkUnpublish(List<UUID> audioIds) {
+        log.info("Bulk unpublish requested for {} audio files", audioIds.size());
+        return executeBulkAction(audioIds, "unpublish", audio -> {
+            if (audio.getStatus() == Audio.Status.DRAFT) {
+                return "Already in draft";
+            }
+            if (audio.isDeleted()) {
+                return "Audio is deleted";
+            }
+            audio.setStatus(Audio.Status.DRAFT);
+            audio.setPublishedAt(null);
+            audioRepository.save(audio);
+            return null;
+        });
+    }
+
+    /**
+     * Bulk archive audio files (any status → ARCHIVED).
+     */
+    @Transactional
+    public BulkActionResult bulkArchive(List<UUID> audioIds) {
+        log.info("Bulk archive requested for {} audio files", audioIds.size());
+        return executeBulkAction(audioIds, "archive", audio -> {
+            if (audio.getStatus() == Audio.Status.ARCHIVED) {
+                return "Already archived";
+            }
+            if (audio.isDeleted()) {
+                return "Audio is deleted";
+            }
+            audio.setStatus(Audio.Status.ARCHIVED);
+            audioRepository.save(audio);
+            return null;
+        });
+    }
+
+    /**
+     * Generic bulk action executor. Processes each audio independently.
+     * Returns a result with success/failure counts and per-ID details.
+     *
+     * @param audioIds  list of audio IDs to process
+     * @param action    action name for logging
+     * @param processor function that takes an Audio and returns null on success or an error message on failure
+     */
+    private BulkActionResult executeBulkAction(List<UUID> audioIds, String action,
+                                                java.util.function.Function<Audio, String> processor) {
+        List<BulkActionResult.ItemResult> results = new ArrayList<>();
+        int successCount = 0;
+        int failedCount = 0;
+        int skippedCount = 0;
+
+        for (UUID id : audioIds) {
+            try {
+                Optional<Audio> audioOpt = audioRepository.findById(id);
+                if (audioOpt.isEmpty()) {
+                    results.add(new BulkActionResult.ItemResult(id, "FAILED", "Audio not found"));
+                    failedCount++;
+                    continue;
+                }
+
+                String error = processor.apply(audioOpt.get());
+                if (error == null) {
+                    results.add(new BulkActionResult.ItemResult(id, "SUCCESS", null));
+                    successCount++;
+                } else {
+                    results.add(new BulkActionResult.ItemResult(id, "SKIPPED", error));
+                    skippedCount++;
+                }
+            } catch (Exception e) {
+                log.error("Bulk {} failed for audio {}: {}", action, id, e.getMessage());
+                results.add(new BulkActionResult.ItemResult(id, "FAILED", e.getMessage()));
+                failedCount++;
+            }
+        }
+
+        log.info("Bulk {} completed: {} success, {} skipped, {} failed out of {} total",
+                action, successCount, skippedCount, failedCount, audioIds.size());
+
+        return BulkActionResult.builder()
+                .action(action)
+                .totalRequested(audioIds.size())
+                .successCount(successCount)
+                .skippedCount(skippedCount)
+                .failedCount(failedCount)
+                .results(results)
+                .build();
+    }
+
+    @lombok.Data
+    @lombok.Builder
+    public static class BulkActionResult {
+        private String action;
+        private int totalRequested;
+        private int successCount;
+        private int skippedCount;
+        private int failedCount;
+        private List<ItemResult> results;
+
+        @lombok.Data
+        @lombok.AllArgsConstructor
+        public static class ItemResult {
+            private UUID audioId;
+            private String status;  // SUCCESS, SKIPPED, FAILED
+            private String reason;  // null for success, error message for skip/fail
+        }
+    }
+}

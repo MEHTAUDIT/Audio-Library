@@ -69,3 +69,17 @@ export interface AudioUpdateRequest {
   speakerIds?: string[];
 }
 
+export interface BulkActionResult {
+  action: string;
+  totalRequested: number;
+  successCount: number;
+  skippedCount: number;
+  failedCount: number;
+  results: BulkActionItemResult[];
+}
+
+export interface BulkActionItemResult {
+  audioId: string;
+  status: 'SUCCESS' | 'SKIPPED' | 'FAILED';
+  reason: string | null;
+}
