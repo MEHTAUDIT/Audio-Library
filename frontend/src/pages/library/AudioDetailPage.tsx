@@ -24,7 +24,7 @@ import {
 import { audioApi } from '../../lib/audioApi';
 import { userLibraryApi } from '../../lib/userLibraryApi';
 import { useAuth } from '../../lib/auth';
-
+import { api } from '../../lib/api';
 const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 export function AudioDetailPage() {
@@ -139,19 +139,45 @@ export function AudioDetailPage() {
     };
   }, [isAuthenticated, id]);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || !id) return;
 
-    if (isPlaying) {
-      audio.pause();
-      if (isAuthenticated && id) {
-        userLibraryApi.updatePlaybackPosition(id, Math.floor(audio.currentTime));
+    try {
+      // pause if already playing
+      if (!audio.paused) {
+        audio.pause();
+        setIsPlaying(false);
+
+        if (isAuthenticated) {
+          userLibraryApi.updatePlaybackPosition(
+            id,
+            Math.floor(audio.currentTime)
+          );
+        }
+        return;
       }
-    } else {
-      audio.play();
+
+      // if source not loaded yet
+      if (!audio.src) {
+        const response = await api.get(
+          `/audio/${id}/stream`,
+          {
+            responseType: "blob",
+          }
+        );
+
+        const audioUrl = URL.createObjectURL(response.data);
+        audio.src = audioUrl;
+        audio.load();
+      }
+
+      await audio.play();
+      setIsPlaying(true);
+    } catch (error) {
+      console.error("Audio playback error:", error);
+      setIsPlaying(false);
     }
-    setIsPlaying(!isPlaying);
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,9 +221,31 @@ export function AudioDetailPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (id) {
-      window.open(`/api/v1/audio/${id}/download`, '_blank');
+  /* handling audio download by fetching the audio blob and creating a temporary link to trigger the download */
+  const handleDownload = async () => {
+    try {
+      if (!id) return;
+
+      const response = await api.get(
+        `/audio/${id}/download`,
+        {
+          responseType: "blob",
+        }
+      );
+
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${audio?.title || "audio"}.mp3`;
+
+      document.body.appendChild(a);
+      a.click();
+
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download failed:", error);
     }
   };
 
@@ -236,7 +284,6 @@ export function AudioDetailPage() {
       {/* Hidden Audio Element */}
       <audio
         ref={audioRef}
-        src={audioApi.getStreamUrl(id!)}
         preload="metadata"
       />
 
@@ -427,7 +474,7 @@ export function AudioDetailPage() {
                           playbackSpeed === speed ? 'text-accent-600 bg-accent-50' : 'text-slate-700'
                         }`}
                       >
-                        {speed}x
+                        {speed}
                       </button>
                     ))}
                   </div>

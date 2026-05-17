@@ -1,5 +1,5 @@
+import type { Audio, AudioStats, AudioUpdateRequest } from '../types/audio';
 import { api } from './api';
-import type { Audio, AudioStats, AudioUpdateRequest, BulkActionResult } from '../types/audio';
 
 export interface AudioUploadData {
   file: File;
@@ -60,7 +60,7 @@ export const audioApi = {
 
   // Get audio stream URL
   getStreamUrl: (id: string): string => {
-    return `/api/v1/audio/${id}/stream`;
+    return `${api.defaults.baseURL}/audio/${id}/stream`;
   },
 
   // Update audio metadata
@@ -91,23 +91,5 @@ export const audioApi = {
   delete: async (id: string): Promise<void> => {
     await api.delete(`/audio/${id}`);
   },
-  
-
-  // Bulk publish multiple audio files (DRAFT → PUBLISHED)
-  bulkPublish: async (audioIds: string[]): Promise<BulkActionResult> => {
-    const response = await api.post<BulkActionResult>('/audio/bulk-publish', audioIds);
-    return response.data;
-  },
-
-  // Bulk unpublish multiple audio files (PUBLISHED → DRAFT)
-  bulkUnpublish: async (audioIds: string[]): Promise<BulkActionResult> => {
-    const response = await api.post<BulkActionResult>('/audio/bulk-unpublish', audioIds);
-    return response.data;
-  },
-
-  // Bulk archive multiple audio files (any status → ARCHIVED)
-  bulkArchive: async (audioIds: string[]): Promise<BulkActionResult> => {
-    const response = await api.post<BulkActionResult>('/audio/bulk-archive', audioIds);
-    return response.data;
-  },
 };
+
