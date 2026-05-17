@@ -221,9 +221,34 @@ export function AudioDetailPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (id) {
-      window.open(`/api/v1/audio/${id}/download`, '_blank');
+  /* handling audio download by fetching the audio blob and creating a temporary link to trigger the download */
+  const handleDownload = async () => {
+    try {
+      if (!id) return;
+
+      const response = await api.get(
+        `/audio/${id}/download`,
+        {
+          responseType: "blob",
+        }
+      );
+
+      const blob = new Blob([response.data]);
+
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+
+      a.download = `${audio?.title || "audio"}.mp3`;
+
+      document.body.appendChild(a);
+      a.click();
+
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download failed:", error);
     }
   };
 
