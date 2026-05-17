@@ -1,9 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SignupPage } from './pages/auth/SignupPage';
+import { RegisterPage } from './pages/auth/RegisterPage';
 import { LoginPage } from './pages/auth/LoginPage';
-import { UserRegisterPage } from './pages/auth/UserRegisterPage';
 import { DashboardPage } from './pages/admin/DashboardPage';
 import { UploadPage } from './pages/admin/UploadPage';
 import { BulkUploadPage } from './pages/admin/BulkUploadPage';
@@ -46,9 +45,9 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/library" replace />} />
       <Route path="/library" element={<LibraryPage />} />
       <Route path="/library/:id" element={<AudioDetailPage />} />
-      <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<UserRegisterPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/signup" element={<Navigate to="/register" replace />} />
 
       {/* Admin Routes */}
       <Route

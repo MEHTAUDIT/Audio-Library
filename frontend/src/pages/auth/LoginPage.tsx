@@ -23,7 +23,6 @@ export const LoginPage = () => {
   const sessionExpired = searchParams.get('expired') === 'true';
   const { login, isAuthenticated } = useAuth();
 
-  // Navigate after auth state has propagated
   useEffect(() => {
     if (isAuthenticated) {
       navigate('/admin', { replace: true });
@@ -40,7 +39,6 @@ export const LoginPage = () => {
     },
     onSuccess: (response) => {
       login(response.data.token);
-      // Navigation handled by useEffect above after isAuthenticated state updates
     },
     onError: (error: any) => {
       alert("Login failed: " + (error.response?.data?.message || "Invalid credentials"));
@@ -78,7 +76,6 @@ export const LoginPage = () => {
               <Input id="email" type="email" {...form.register("email")} placeholder="admin@acme.com" className="mt-1" />
               {form.formState.errors.email && <p className="text-red-500 text-xs mt-1">{form.formState.errors.email.message}</p>}
             </div>
-
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
               <Input id="password" type="password" {...form.register("password")} className="mt-1" />
@@ -91,18 +88,10 @@ export const LoginPage = () => {
               {mutation.isLoading ? 'Signing in...' : 'Sign in'}
             </Button>
           </div>
-          
-          <div className="text-center space-y-2">
-            <div className="text-sm">
-              <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
-                Don't have an account? Create one
-              </Link>
-            </div>
-            <div className="text-sm">
-              <Link to="/signup" className="font-medium text-gray-500 hover:text-gray-700">
-                Register a new organization
-              </Link>
-            </div>
+          <div className="text-center text-sm">
+            <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
+              Don't have an account? Register
+            </Link>
           </div>
         </form>
       </div>
