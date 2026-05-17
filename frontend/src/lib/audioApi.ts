@@ -60,7 +60,7 @@ export const audioApi = {
 
   // Get audio stream URL
   getStreamUrl: (id: string): string => {
-    return `http://localhost:8080/api/v1/audio/${id}/stream`; // can set here env var for base url...
+    return `${api.defaults.baseURL}/audio/${id}/stream`;
   },
 
   // Update audio metadata
