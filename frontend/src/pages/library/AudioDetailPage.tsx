@@ -234,12 +234,9 @@ export function AudioDetailPage() {
       );
 
       const blob = new Blob([response.data]);
-
       const url = window.URL.createObjectURL(blob);
-
       const a = document.createElement("a");
       a.href = url;
-
       a.download = `${audio?.title || "audio"}.mp3`;
 
       document.body.appendChild(a);

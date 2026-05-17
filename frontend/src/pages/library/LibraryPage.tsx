@@ -22,6 +22,7 @@ import {
   Flame,
   Heart,
 } from 'lucide-react';
+import { api } from '../../lib/api';
 import { audioApi } from '../../lib/audioApi';
 import { userLibraryApi, discoveryApi } from '../../lib/userLibraryApi';
 import { Badge } from '../../components/ui/Badge';
@@ -99,14 +100,18 @@ function AudioCard({
   onPlay, 
   playingId,
   onNavigate,
+  currentTime,
+  duration,
   compact = false,
-}: { 
+}: {
   audio: Audio;
   onPlay: (audio: Audio) => void;
   playingId: string | null;
   onNavigate: (id: string) => void;
+  currentTime: number;
+  duration: number;
   compact?: boolean;
-}) {
+}){
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -139,6 +144,7 @@ function AudioCard({
           }}
           className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/30 transition-colors group/play"
         >
+          
           <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 group-hover/play:scale-110 transition-all">
             {playingId === audio.id ? (
               <Pause className="w-5 h-5 text-accent-600" />
@@ -152,11 +158,14 @@ function AudioCard({
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/50 backdrop-blur-sm">
               <Volume2 className="w-3 h-3 text-accent-400 animate-pulse" />
               <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full bg-accent-400"
-                  initial={{ width: '0%' }}
-                  animate={{ width: '60%' }}
-                  transition={{ duration: 2, repeat: Infinity }}
+                <div
+                  className="h-full bg-accent-400 transition-all duration-200"
+                  style={{
+                    width:
+                      playingId === audio.id && duration
+                        ? `${(currentTime / duration) * 100}%`
+                        : "0%",
+                  }}
                 />
               </div>
             </div>
@@ -283,21 +292,33 @@ export function LibraryPage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const togglePlay = (audio: Audio) => {
-    const audioElement = audioRef.current;
-    if (!audioElement) return;
-
-    if (playingId === audio.id) {
-      audioElement.pause();
-      setPlayingId(null);
-    } else {
-      const streamUrl = audioApi.getStreamUrl(audio.id);
-      audioElement.src = streamUrl;
-      audioElement.play().catch(console.error);
-      setPlayingId(audio.id);
-      setCurrentTime(0);
-    }
-  };
+  /* handling audio playback by fetching the audio stream as a blob, creating a temporary URL, and controlling the audio element to play/pause the audio */
+  const togglePlay = async (audio: Audio) => {
+      const audioElement = audioRef.current;
+      if (!audioElement) return;
+  
+      if (playingId === audio.id) {
+        audioElement.pause();
+        setPlayingId(null);
+      } else {
+        try {
+          const response = await api.get(
+            `/audio/${audio.id}/stream`,
+            {
+              responseType: "blob",
+            }
+          );
+          const audioUrl = URL.createObjectURL(response.data);
+  
+          audioElement.src = audioUrl;
+          await audioElement.play();
+  
+          setPlayingId(audio.id);
+        } catch (error) {
+          console.error("Audio playback error:", error);
+        }
+      }
+    };
 
   const handleNavigateToDetail = (id: string) => {
     navigate(`/library/${id}`);
@@ -314,6 +335,36 @@ export function LibraryPage() {
         return history;
       default:
         return filteredAudio || [];
+    }
+  };
+  /* handling audio download by fetching the audio blob and creating a temporary link to trigger the download */
+  const handleDownload = async (
+    audioId: string,
+    title: string
+  ) => {
+    try {
+      const response = await api.get(
+        `/audio/${audioId}/download`,
+        {
+          responseType: "blob",
+        }
+      );
+
+      const blob = new Blob([response.data]);
+
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${title}.mp3`;
+
+      document.body.appendChild(link);
+      link.click();
+
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download failed:", error);
     }
   };
 
@@ -680,7 +731,7 @@ export function LibraryPage() {
                   <Pause className="w-5 h-5 text-white" />
                 )}
               </button>
-              <div 
+              <div
                 className="flex-1 cursor-pointer"
                 onClick={() => playingId && handleNavigateToDetail(playingId)}
               >
@@ -694,12 +745,28 @@ export function LibraryPage() {
                   <span className="text-xs text-slate-400">
                     {formatDuration(Math.floor(currentTime))}
                   </span>
-                  <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-accent-500"
-                      style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                    />
-                  </div>
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={duration || 0}
+                    value={currentTime}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      e.stopPropagation();
+
+                      const audio = audioRef.current;
+                      if (!audio) return;
+
+                      const newTime = Number(e.target.value);
+
+                      audio.currentTime = newTime;
+                      setCurrentTime(newTime);
+                    }}
+                    className="flex-1 h-1 cursor-pointer accent-cyan-500"
+                  />
+
                   <span className="text-xs text-slate-400">
                     {formatDuration(Math.floor(duration))}
                   </span>
