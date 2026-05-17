@@ -92,14 +92,20 @@ export const LoginPage = () => {
             </Button>
           </div>
           
-          <div className="text-center text-sm">
-             <Link to="/signup" className="font-medium text-blue-600 hover:text-blue-500">
-                Don't have an account? Sign up
-            </Link>
+          <div className="text-center space-y-2">
+            <div className="text-sm">
+              <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
+                Don't have an account? Create one
+              </Link>
+            </div>
+            <div className="text-sm">
+              <Link to="/signup" className="font-medium text-gray-500 hover:text-gray-700">
+                Register a new organization
+              </Link>
+            </div>
           </div>
         </form>
       </div>
     </div>
   );
 };
-
