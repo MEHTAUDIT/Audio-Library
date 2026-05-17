@@ -11,5 +11,5 @@ import java.util.UUID;
 public interface TenantRepository extends JpaRepository<Tenant, UUID> {
     Optional<Tenant> findBySubdomain(String subdomain);
     Optional<Tenant> findByCustomDomain(String customDomain);
+    Optional<Tenant> findBySchemaName(String schemaName);
 }
-
