@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -69,6 +71,17 @@ public class Audio extends BaseEntity {
     // Metadata for search (legacy - consider using audio_metadata or tags)
     private String speaker;
     private String topic;
+
+
+    /* Added Relations important for using searching option */
+    @OneToMany(mappedBy = "audio", fetch = FetchType.LAZY)
+    private List<AudioSpeakerJoin> audioSpeakers = new ArrayList<>();
+
+    @OneToMany(mappedBy = "audio", fetch = FetchType.LAZY)
+    private List<AudioGenreJoin> audioGenres = new ArrayList<>();
+
+    @OneToMany(mappedBy = "audio", fetch = FetchType.LAZY)
+    private List<AudioTagJoin> audioTags = new ArrayList<>();
 
     public enum Status {
         DRAFT,

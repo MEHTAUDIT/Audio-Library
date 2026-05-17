@@ -2,13 +2,14 @@ package com.audiolibrary.repository;
 
 import com.audiolibrary.entity.Audio;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.UUID;
 
 @Repository
-public interface AudioRepository extends JpaRepository<Audio, UUID> {
+public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecificationExecutor<Audio> {
     
     List<Audio> findByDeletedAtIsNull();
     

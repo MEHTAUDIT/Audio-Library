@@ -45,7 +45,15 @@ public class AudioController {
     public ResponseEntity<List<AudioResponse>> getPublishedAudio() {
         return ResponseEntity.ok(audioService.getPublishedAudio());
     }
-
+    @Operation(summary = "Filter the audio list", description = "Get the filtered audio list results after applying filters")
+    @GetMapping("/search")
+    @PreAuthorize("permitAll()")
+    public ResponseEntity<List<AudioResponse>> getFilteredAudioResults(@RequestParam(required = false) String speaker_name,
+                                                                       @RequestParam(required = false) String tag,
+                                                                       @RequestParam(required = false) String genre,
+                                                                       @RequestParam(required = false) String audio_substring){
+        return ResponseEntity.ok(audioService.getFilteredAudioList(speaker_name, tag, genre, audio_substring));
+    }
     @Operation(summary = "Get audio by ID", description = "Get a single audio file by its UUID. Published audio is public, drafts require admin access.")
     @GetMapping("/{id}")
     @PreAuthorize("@audioSecurity.canView(#id, authentication)")

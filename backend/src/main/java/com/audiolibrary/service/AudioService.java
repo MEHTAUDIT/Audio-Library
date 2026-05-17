@@ -3,10 +3,16 @@ package com.audiolibrary.service;
 import com.audiolibrary.dto.AudioResponse;
 import com.audiolibrary.dto.AudioUpdateRequest;
 import com.audiolibrary.dto.AudioUploadRequest;
-import com.audiolibrary.entity.Audio;
+import com.audiolibrary.entity.*;
 import com.audiolibrary.repository.AudioRepository;
+import com.audiolibrary.repository.GenreRepository;
+import com.audiolibrary.repository.TagRepository;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +26,8 @@ import java.util.stream.Collectors;
 public class AudioService {
 
     private final AudioRepository audioRepository;
-
+    private final GenreRepository genreRepository;
+    private final TagRepository tagRepository;
     /**
      * Create a new audio file in DRAFT status (legacy - metadata only)
      */
@@ -120,6 +127,84 @@ public class AudioService {
         return audioList.stream()
                 .map(AudioResponse::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    /* optionally:  get filtered list of audio from searchbar */
+    public List<AudioResponse> getFilteredAudioList(
+            String speakerName,
+            String tag,
+            String genre,
+            String audioSubstring
+    ) {
+
+        Specification<Audio> spec = (root, query, cb) -> {
+
+            List<Predicate> predicates = new ArrayList<>(); // predicates -> conditions
+
+            // Only published + not deleted
+            predicates.add(cb.equal(root.get("status"), Audio.Status.PUBLISHED));
+            predicates.add(cb.isNull(root.get("deletedAt")));
+
+            // filter by speaker name
+            if (speakerName != null && !speakerName.isBlank()) {
+                Join<Audio, AudioSpeakerJoin> speakerJoin =
+                        root.join("audioSpeakers", JoinType.LEFT);
+
+                Join<AudioSpeakerJoin, Speaker> speaker =
+                        speakerJoin.join("speaker", JoinType.LEFT);
+
+                predicates.add(cb.like(
+                        cb.lower(speaker.get("name")),
+                        "%" + speakerName.toLowerCase() + "%"
+                ));
+            }
+
+            // filter by tags
+            if (tag != null && !tag.isBlank()) {
+                Join<Audio, AudioTagJoin> tagJoin =
+                        root.join("audioTags", JoinType.LEFT);
+
+                Join<AudioTagJoin, Tag> tagEntity =
+                        tagJoin.join("tag", JoinType.LEFT);
+
+                predicates.add(cb.equal(
+                        cb.lower(tagEntity.get("name")),
+                        tag.toLowerCase()
+                ));
+            }
+
+            // filter by genre
+            if (genre != null && !genre.isBlank()) {
+                Join<Audio, AudioGenreJoin> genreJoin =
+                        root.join("audioGenres", JoinType.LEFT);
+
+                Join<AudioGenreJoin, Genre> genreEntity =
+                        genreJoin.join("genre", JoinType.LEFT);
+
+                predicates.add(cb.equal(
+                        cb.lower(genreEntity.get("name")),
+                        genre.toLowerCase()
+                ));
+            }
+
+            // Title + description search
+            if (audioSubstring != null && !audioSubstring.isBlank()) {
+                String keyword = "%" + audioSubstring.toLowerCase() + "%";
+
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("title")), keyword),
+                        cb.like(cb.lower(root.get("description")), keyword)
+                ));
+            }
+
+            query.distinct(true);
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return audioRepository.findAll(spec)
+                .stream()
+                .map(AudioResponse::fromEntity)
+                .toList();
     }
 
     /**
@@ -258,6 +343,8 @@ public class AudioService {
                 .totalCount(total)
                 .build();
     }
+
+
 
     @lombok.Builder
     @lombok.Data
