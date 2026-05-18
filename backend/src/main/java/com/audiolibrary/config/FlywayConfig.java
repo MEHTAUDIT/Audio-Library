@@ -98,6 +98,7 @@ public class FlywayConfig {
                 "    topic VARCHAR(255)," +
                 "    tenant_id UUID," +
                 "    deleted_at TIMESTAMP," +
+                "    file_hash VARCHAR(64)," +            
                 "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
                 "    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
                 ")"

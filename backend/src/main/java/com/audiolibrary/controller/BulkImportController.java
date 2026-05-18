@@ -14,9 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/bulk-import")
@@ -103,10 +101,30 @@ public class BulkImportController {
         }
     }
 
-    @Operation(summary = "Execute bulk import", description = "Import all files from a server path with the given mapping. Requires ADMIN role.")
+    // ┌──────────────────────────────────────────────────────────────────┐
+    // │ CHANGED: Entire executeImport method rewritten                   │
+    // │                                                                  │
+    // │ BEFORE:                                                          │
+    // │   - Return type: ResponseEntity<JobStatus>                       │
+    // │   - Logic: for loop calling importSingleFile() 300 times         │
+    // │   - Manual error list + success counter                          │
+    // │   - Manual JobStatus builder at the end                          │
+    // │   - 300 files × 3 DB queries = 900 round-trips                  │
+    // │                                                                  │
+    // │ AFTER:                                                           │
+    // │   - Return type: ResponseEntity<BatchImportResult>               │
+    // │   - Logic: single call to importBatch()                          │
+    // │   - Batch handles hashing, dedup, storage, saveAll internally    │
+    // │   - 2 DB round-trips total (1 hash check + 1 batch save)        │
+    // └──────────────────────────────────────────────────────────────────┘
+
+    @Operation(summary = "Execute bulk import",
+            description = "Import all files from a server path with the given mapping. " +
+                    "Uses batch processing for optimal performance — duplicate detection and " +
+                    "database inserts are batched. Requires ADMIN role.")
     @PostMapping("/execute")
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
-    public ResponseEntity<JobStatus> executeImport(
+    public ResponseEntity<BulkImportService.BatchImportResult> executeImport(   // ← CHANGED: return type
             @RequestBody ExecuteRequest request,
             @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
         
@@ -115,45 +133,18 @@ public class BulkImportController {
         Tenant tenant = tenantRepository.findBySubdomain(subdomain)
                 .orElseThrow(() -> new RuntimeException("Tenant not found: " + subdomain));
         
-        log.info("Executing bulk import for path: {} with {} files for tenant: {}", 
+        log.info("Executing batch import for path: {} with {} files for tenant: {}", 
                 request.getSourcePath(), 
                 request.getFiles().size(),
                 subdomain);
         
-        // Process synchronously for now (could be made async with job tracking)
-        List<ImportError> errors = new ArrayList<>();
-        int successCount = 0;
+        BulkImportService.BatchImportResult result = bulkImportService.importBatch(
+                request.getSourcePath(),
+                request.getFiles(),
+                tenant.getId()
+        );
         
-        for (MappedAudioFile file : request.getFiles()) {
-            try {
-                bulkImportService.importSingleFile(
-                        request.getSourcePath(),
-                        file,
-                        tenant.getId()
-                );
-                successCount++;
-            } catch (Exception e) {
-                log.error("Failed to import file: {}", file.getFilename(), e);
-                errors.add(ImportError.builder()
-                        .file(file.getFilename())
-                        .error(e.getMessage())
-                        .build());
-            }
-        }
-        
-        JobStatus status = JobStatus.builder()
-                .jobId(UUID.randomUUID().toString())
-                .status("completed")
-                .totalFiles(request.getFiles().size())
-                .processedFiles(request.getFiles().size())
-                .successCount(successCount)
-                .errorCount(errors.size())
-                .errors(errors)
-                .build();
-        
-        log.info("Bulk import completed: {} success, {} errors", successCount, errors.size());
-        
-        return ResponseEntity.ok(status);
+        return ResponseEntity.ok(result);
     }
 
     @Operation(summary = "Get mapping presets", description = "Get available preset mapping configurations.")
@@ -215,4 +206,3 @@ public class BulkImportController {
         return ResponseEntity.ok(presets);
     }
 }
-

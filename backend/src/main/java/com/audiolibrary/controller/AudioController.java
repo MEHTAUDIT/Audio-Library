@@ -23,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;  
 import java.util.UUID;
 
 @RestController
@@ -152,7 +153,7 @@ public class AudioController {
     @Operation(summary = "Upload new audio file", description = "Upload an audio file with metadata. Requires ADMIN role. Saved as DRAFT status.")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
-    public ResponseEntity<AudioResponse> uploadAudio(
+    public ResponseEntity<?> uploadAudio(   
             @Parameter(description = "Audio file (MP3, WAV, etc.)")
             @RequestPart("file") MultipartFile file,
             @Parameter(description = "Title of the audio")
@@ -173,28 +174,41 @@ public class AudioController {
         
         log.info("Uploading audio file: {} for tenant: {}", file.getOriginalFilename(), subdomain);
         
+        String fileHash = AudioService.computeFileHash(file.getBytes());
+        
         // Store the file first (before the temp file is consumed)
         String storageKey = storageService.storeFile(file, tenant.getId());
         
         // Get audio duration from stored file
         long durationSeconds = storageService.getAudioDuration(storageKey);
         
-        // Create audio record
-        AudioResponse response = audioService.createDraftWithFile(
-                title,
-                description,
-                speaker,
-                category,
-                storageKey,
-                file.getOriginalFilename(),
-                file.getSize(),
-                file.getContentType(),
-                durationSeconds,
-                tenant.getId()
-        );
-        
-        log.info("Audio uploaded successfully: {}", response.getId());
-        return ResponseEntity.ok(response);
+        try {
+            AudioResponse response = audioService.createDraftWithFile(
+                    title,
+                    description,
+                    speaker,
+                    category,
+                    storageKey,
+                    file.getOriginalFilename(),
+                    file.getSize(),
+                    file.getContentType(),
+                    durationSeconds,
+                    tenant.getId(),
+                    fileHash             
+            );
+            
+            log.info("Audio uploaded successfully: {}", response.getId());
+            return ResponseEntity.ok(response);
+        } catch (AudioService.DuplicateFileException e) {
+
+            log.warn("Duplicate upload rejected: {}", e.getMessage());
+            return ResponseEntity.status(409).body(Map.of(
+                    "error", "DUPLICATE_FILE",
+                    "message", e.getMessage(),
+                    "existingAudioId", e.getExistingAudioId().toString(),
+                    "existingTitle", e.getExistingTitle()
+            ));
+        }
     }
 
     @Operation(summary = "Get all audio", description = "Get all audio files, optionally filtered by status. Requires ADMIN role.")
