@@ -4,6 +4,7 @@ import com.audiolibrary.entity.Audio;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -15,7 +16,7 @@ import java.util.Set;
 import java.util.UUID;
 
 @Repository
-public interface AudioRepository extends JpaRepository<Audio, UUID> {
+public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecificationExecutor<Audio> {
     
     List<Audio> findByDeletedAtIsNull();
     

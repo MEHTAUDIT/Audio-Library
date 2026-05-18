@@ -29,6 +29,23 @@ export const audioApi = {
     return response.data;
   },
 
+  // Search published audio with optional filters
+  searchPublished: async (filters: {
+    speakerName?: string | null;
+    genre?: string | null;
+    tag?: string | null;
+    audioSubstring?: string | null;
+  }): Promise<Audio[]> => {
+    const params: Record<string, string> = {};
+    if (filters?.speakerName) params.speaker_name = filters.speakerName;
+    if (filters?.genre) params.genre = filters.genre;
+    if (filters?.tag) params.tag = filters.tag;
+    if (filters?.audioSubstring) params.audio_substring = filters.audioSubstring;
+
+    const response = await api.get<Audio[]>('/audio/search', { params });
+    return response.data;
+  },
+
   // Get audio statistics
   getStats: async (): Promise<AudioStats> => {
     const response = await api.get<AudioStats>('/audio/stats');

@@ -1,32 +1,32 @@
-import React, { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  FileAudio,
-  Search,
-  Play,
-  Pause,
-  User,
-  Clock,
-  Grid,
-  List,
-  Headphones,
-  Music2,
-  Volume2,
-  TrendingUp,
-  History,
-  Sparkles,
-  ListMusic,
   ChevronRight,
+  Clock,
+  FileAudio,
   Flame,
+  Grid,
+  Headphones,
   Heart,
+  History,
+  List,
+  ListMusic,
+  Music2,
+  Pause,
+  Play,
+  Sparkles,
+  TrendingUp,
+  User,
+  Volume2
 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { LibraryFilters, LibrarySearch } from '../../components/layout/LibrarySearch';
+import { Badge } from '../../components/ui/Badge';
 import { api } from '../../lib/api';
 import { audioApi } from '../../lib/audioApi';
-import { userLibraryApi, discoveryApi } from '../../lib/userLibraryApi';
-import { Badge } from '../../components/ui/Badge';
 import { useAuth } from '../../lib/auth';
+import { discoveryApi, userLibraryApi } from '../../lib/userLibraryApi';
 import type { Audio } from '../../types/audio';
 
 const container = {
@@ -100,16 +100,16 @@ function AudioCard({
   onPlay, 
   playingId,
   onNavigate,
-  currentTime,
-  duration,
+  currentTime = 0,
+  duration = 0,
   compact = false,
 }: {
   audio: Audio;
   onPlay: (audio: Audio) => void;
   playingId: string | null;
   onNavigate: (id: string) => void;
-  currentTime: number;
-  duration: number;
+  currentTime?: number;
+  duration?: number;
   compact?: boolean;
 }){
   const formatDuration = (seconds: number) => {
@@ -200,7 +200,12 @@ function AudioCard({
 export function LibraryPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilters, setSearchFilters] = useState<LibraryFilters>({
+    audioSubstring: '',
+    speakerName: null,
+    genre: null,
+    tag: null,
+  });
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -210,9 +215,17 @@ export function LibraryPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Queries
-  const { data: publishedAudio, isLoading } = useQuery({
-    queryKey: ['libraryAudio'],
+  // Fetch a complete published list once to populate dropdown options
+  const { data: publishedAudioAll = [], isLoading: isInitialLoading } = useQuery({
+    queryKey: ['libraryAudio', 'all'],
     queryFn: audioApi.getPublished,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Server-side filtered results based on filters (debounced by LibrarySearch)
+  const { data: publishedAudio = [], isLoading, error } = useQuery({
+    queryKey: ['libraryAudio', searchFilters],
+    queryFn: () => audioApi.searchPublished(searchFilters),
   });
 
   const { data: trending = [] } = useQuery({
@@ -272,14 +285,12 @@ export function LibraryPage() {
   // Get unique topics for filtering from current audio
   const audioTopics = [...new Set(publishedAudio?.map((a) => a.topic).filter(Boolean))];
 
-  const filteredAudio = publishedAudio?.filter((audio) => {
-    const matchesSearch =
-      audio.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      audio.speaker?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      audio.description?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTopic = !selectedTopic || audio.topic === selectedTopic;
-    return matchesSearch && matchesTopic;
-  });
+  const hasActiveFilters = Boolean(
+    (searchFilters.audioSubstring && searchFilters.audioSubstring.length > 0) ||
+      searchFilters.speakerName ||
+      searchFilters.genre ||
+      searchFilters.tag
+  );
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -334,7 +345,7 @@ export function LibraryPage() {
       case 'history':
         return history;
       default:
-        return filteredAudio || [];
+        return publishedAudio || [];
     }
   };
   /* handling audio download by fetching the audio blob and creating a temporary link to trigger the download */
@@ -398,13 +409,19 @@ export function LibraryPage() {
 
             {/* Search */}
             <div className="max-w-2xl mx-auto relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search audio by title, speaker, or topic..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white/95 backdrop-blur-sm border border-white/20 text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent shadow-lg"
+              <LibrarySearch
+                initial={{ audioSubstring: '', speakerName: null, genre: null, tag: null }}
+                speakers={[...new Set(publishedAudioAll.flatMap((a) => [
+                  ...(a.speakers?.map((s) => s.name) || []),
+                  ...(a.speaker ? [a.speaker] : []),
+                ]).filter(Boolean))] as string[]}
+                genres={[...new Set(publishedAudioAll.flatMap((a) => [
+                  ...(a.genres?.map((g) => g.name) || []),
+                  ...(a.topic ? [a.topic] : []),
+                ]).filter(Boolean))] as string[]}
+                tags={[...new Set(publishedAudioAll.flatMap((a) => a.tags?.map((t) => t.name) || []).filter(Boolean))] as string[]}
+                onChange={(filters) => setSearchFilters(filters)}
+                debounceMs={400}
               />
             </div>
           </motion.div>
@@ -597,7 +614,11 @@ export function LibraryPage() {
         </motion.div>
 
         {/* Audio Grid/List */}
-        {isLoading ? (
+        {error ? (
+          <div className="text-center py-20">
+            <p className="text-red-500">Failed to load audio. Please try again.</p>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-12 h-12 border-4 border-accent-500/30 border-t-accent-500 rounded-full animate-spin" />
           </div>
@@ -674,11 +695,7 @@ export function LibraryPage() {
             </motion.div>
           )
         ) : (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center py-20"
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
             <div className="w-20 h-20 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
               <FileAudio className="w-10 h-10 text-slate-400" />
             </div>
@@ -692,7 +709,7 @@ export function LibraryPage() {
               {activeTab === 'favorites' ? 'Heart your favorite recordings to find them here' :
                activeTab === 'queue' ? 'Add recordings to your queue to listen later' :
                activeTab === 'history' ? 'Start listening to build your history' :
-               searchQuery ? 'Try adjusting your search or filters' : 'Check back later for new content'}
+               hasActiveFilters ? 'Try adjusting your search or filters' : 'Check back later for new content'}
             </p>
           </motion.div>
         )}
