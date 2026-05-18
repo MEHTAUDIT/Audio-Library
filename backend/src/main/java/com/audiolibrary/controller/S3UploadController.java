@@ -122,7 +122,8 @@ public class S3UploadController {
                 metadata.getSize(),
                 metadata.getContentType(),
                 0L,  // Duration will be calculated separately if needed
-                tenant.getId()
+                tenant.getId(),
+                null
         );
         
         log.info("Audio record created for S3 key: {}", request.getS3Key());
@@ -170,7 +171,8 @@ public class S3UploadController {
                         metadata.getSize(),
                         metadata.getContentType(),
                         0L,
-                        tenant.getId()
+                        tenant.getId(),
+                        null
                 );
                 
                 succeeded.add(file.getS3Key());
@@ -336,7 +338,8 @@ public class S3UploadController {
                         metadata.getSize(),
                         metadata.getContentType(),
                         0L,
-                        tenant.getId()
+                        tenant.getId(),
+                        null
                 );
                 
                 succeeded.add(permanentKey);

@@ -62,6 +62,9 @@ public class Audio extends BaseEntity {
     @Column(name = "tenant_id")
     private UUID tenantId;
 
+    @Column(name = "file_hash")
+    private String fileHash;
+
     // P1: Soft delete
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
@@ -97,4 +100,3 @@ public class Audio extends BaseEntity {
         this.deletedAt = null;
     }
 }
-

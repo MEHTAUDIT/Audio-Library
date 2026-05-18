@@ -10,6 +10,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -60,7 +67,8 @@ public class AudioService {
     }
 
     /**
-     * Create a new audio file with actual file upload
+     * Create a new audio file with actual file upload.
+     * Checks for duplicates using file hash before saving.
      */
     @Transactional
     public AudioResponse createDraftWithFile(
@@ -73,8 +81,22 @@ public class AudioService {
             long sizeBytes,
             String mimeType,
             long durationSeconds,
-            UUID tenantId) {
-        
+            UUID tenantId,
+            String fileHash) { 
+
+        if (fileHash != null) {
+            Optional<Audio> existing = audioRepository.findByFileHashAndDeletedAtIsNull(fileHash);
+            if (existing.isPresent()) {
+                Audio dup = existing.get();
+                log.warn("Duplicate file detected: hash={}, existing audioId={}, title='{}', new title='{}'",
+                        fileHash, dup.getId(), dup.getTitle(), title);
+                throw new DuplicateFileException(
+                        "Duplicate file detected. This file already exists as: " + dup.getTitle(),
+                        dup.getId(),
+                        dup.getTitle());
+            }
+        }
+
         Audio audio = new Audio();
         audio.setTenantId(tenantId);
         audio.setTitle(title);
@@ -88,7 +110,8 @@ public class AudioService {
         audio.setStatus(Audio.Status.DRAFT);
         audio.setStorageKey(storageKey);
         audio.setOriginalFilename(originalFilename);
-        
+        audio.setFileHash(fileHash);   // ← ADDED: store hash for future duplicate checks
+
         // Set the streaming URL
         Audio saved = audioRepository.save(audio);
         saved.setUrl("/api/v1/audio/" + saved.getId() + "/stream");
@@ -269,7 +292,70 @@ public class AudioService {
     }
 
     /**
-     * Bulk publish audio files (DRAFT → PUBLISHED).
+     *  Compute SHA-256 hash from a byte array (for MultipartFile uploads).
+     * Called from AudioController: AudioService.computeFileHash(file.getBytes())
+     */
+    public static String computeFileHash(byte[] fileBytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashBytes = digest.digest(fileBytes);
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hashBytes) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+    /**
+     * Compute SHA-256 hash from a file path (for bulk import).
+     * Streams in 8KB chunks — does NOT load entire file into memory.
+     * Called from BulkImportService: AudioService.computeFileHash(sourceFile)
+     */
+    public static String computeFileHash(Path filePath) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (InputStream is = Files.newInputStream(filePath);
+                 DigestInputStream dis = new DigestInputStream(is, digest)) {
+                byte[] buffer = new byte[8192];
+                while (dis.read(buffer) != -1) {
+                    // reading through to compute hash
+                }
+            }
+            byte[] hashBytes = digest.digest();
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hashBytes) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+    /**
+     * ADDED: Exception thrown when a duplicate file is detected during upload.
+     * Caught by AudioController to return HTTP 409 Conflict with details.
+     */
+    public static class DuplicateFileException extends RuntimeException {
+        private final UUID existingAudioId;
+        private final String existingTitle;
+
+        public DuplicateFileException(String message, UUID existingAudioId, String existingTitle) {
+            super(message);
+            this.existingAudioId = existingAudioId;
+            this.existingTitle = existingTitle;
+        }
+
+        public UUID getExistingAudioId() { return existingAudioId; }
+        public String getExistingTitle() { return existingTitle; }
+    }
+
+
+    /**
+     *  Bulk publish audio files (DRAFT → PUBLISHED).
      * Processes each ID independently — one failure does not block others.
      */
     @Transactional
@@ -285,12 +371,12 @@ public class AudioService {
             audio.setStatus(Audio.Status.PUBLISHED);
             audio.setPublishedAt(LocalDateTime.now());
             audioRepository.save(audio);
-            return null; // null = success
+            return null;
         });
     }
 
     /**
-     * Bulk unpublish audio files (PUBLISHED → DRAFT).
+     * ADDED: Bulk unpublish audio files (PUBLISHED → DRAFT).
      */
     @Transactional
     public BulkActionResult bulkUnpublish(List<UUID> audioIds) {
@@ -310,7 +396,7 @@ public class AudioService {
     }
 
     /**
-     * Bulk archive audio files (any status → ARCHIVED).
+     *Bulk archive audio files (any status → ARCHIVED).
      */
     @Transactional
     public BulkActionResult bulkArchive(List<UUID> audioIds) {
@@ -329,12 +415,7 @@ public class AudioService {
     }
 
     /**
-     * Generic bulk action executor. Processes each audio independently.
-     * Returns a result with success/failure counts and per-ID details.
-     *
-     * @param audioIds  list of audio IDs to process
-     * @param action    action name for logging
-     * @param processor function that takes an Audio and returns null on success or an error message on failure
+     *Generic bulk action executor. Processes each audio independently.
      */
     private BulkActionResult executeBulkAction(List<UUID> audioIds, String action,
                                                 java.util.function.Function<Audio, String> processor) {
@@ -351,7 +432,6 @@ public class AudioService {
                     failedCount++;
                     continue;
                 }
-
                 String error = processor.apply(audioOpt.get());
                 if (error == null) {
                     results.add(new BulkActionResult.ItemResult(id, "SUCCESS", null));
@@ -380,6 +460,9 @@ public class AudioService {
                 .build();
     }
 
+    /**
+     * Result DTO for bulk actions.
+     */
     @lombok.Data
     @lombok.Builder
     public static class BulkActionResult {
@@ -394,8 +477,8 @@ public class AudioService {
         @lombok.AllArgsConstructor
         public static class ItemResult {
             private UUID audioId;
-            private String status;  // SUCCESS, SKIPPED, FAILED
-            private String reason;  // null for success, error message for skip/fail
+            private String status;
+            private String reason;
         }
     }
 }
