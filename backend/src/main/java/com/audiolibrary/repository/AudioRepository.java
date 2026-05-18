@@ -30,7 +30,6 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     
     List<Audio> findByTenantIdAndStatusAndDeletedAtIsNull(UUID tenantId, Audio.Status status);
 
-<<<<<<< Updated upstream
     Page<Audio> findByStatusAndDeletedAtIsNull(Audio.Status status, Pageable pageable);
 
     Optional<Audio> findByFileHashAndDeletedAtIsNull(String fileHash);
@@ -38,5 +37,3 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     @Query("SELECT a.fileHash FROM Audio a WHERE a.fileHash IN :hashes AND a.deletedAt IS NULL")
     Set<String> findExistingHashes(@Param("hashes") Collection<String> hashes);
 }
-=======
->>>>>>> Stashed changes
