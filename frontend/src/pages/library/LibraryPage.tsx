@@ -157,16 +157,8 @@ function AudioCard({
           <div className="absolute bottom-2 left-2 right-2">
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/50 backdrop-blur-sm">
               <Volume2 className="w-3 h-3 text-accent-400 animate-pulse" />
-              <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent-400 transition-all duration-200"
-                  style={{
-                    width:
-                      playingId === audio.id && duration
-                        ? `${(currentTime / duration) * 100}%`
-                        : "0%",
-                  }}
-                />
+              <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden relative">
+                <div className="absolute inset-y-0 left-0 w-full bg-accent-400/80 animate-pulse" />
               </div>
             </div>
           </div>
@@ -424,6 +416,18 @@ export function LibraryPage() {
                 debounceMs={400}
               />
             </div>
+
+            {isAuthenticated && (
+              <div className="mt-5 flex justify-center">
+                <Link
+                  to="/queue"
+                  className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-sm border border-white/20 hover:bg-white/15 transition-colors"
+                >
+                  <ListMusic className="w-4 h-4" />
+                  Open queue page
+                </Link>
+              </div>
+            )}
           </motion.div>
         </div>
       </header>
@@ -768,6 +772,8 @@ export function LibraryPage() {
                     min={0}
                     max={duration || 0}
                     value={currentTime}
+                    aria-label="Playback progress"
+                    title="Playback progress"
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                     onChange={(e) => {
