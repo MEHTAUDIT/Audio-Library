@@ -1,20 +1,21 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RegisterPage } from './pages/auth/RegisterPage';
-import { LoginPage } from './pages/auth/LoginPage';
-import { DashboardPage } from './pages/admin/DashboardPage';
-import { UploadPage } from './pages/admin/UploadPage';
-import { BulkUploadPage } from './pages/admin/BulkUploadPage';
-import { ProcessUploadPage } from './pages/admin/ProcessUploadPage';
-import { StagingPage } from './pages/admin/StagingPage';
-import { PublishedPage } from './pages/admin/PublishedPage';
-import { ArchivedPage } from './pages/admin/ArchivedPage';
-import { LibraryPage } from './pages/library/LibraryPage';
-import { AudioDetailPage } from './pages/library/AudioDetailPage';
+import React from 'react';
+import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { AdminLayout } from './components/layout/AdminLayout';
-import { AuthProvider, useAuth } from './lib/auth';
 import { TooltipProvider } from './components/ui/Tooltip';
+import { AuthProvider, useAuth } from './lib/auth';
+import { ArchivedPage } from './pages/admin/ArchivedPage';
+import { BulkUploadPage } from './pages/admin/BulkUploadPage';
+import { DashboardPage } from './pages/admin/DashboardPage';
+import { ProcessUploadPage } from './pages/admin/ProcessUploadPage';
+import { PublishedPage } from './pages/admin/PublishedPage';
+import { StagingPage } from './pages/admin/StagingPage';
+import { UploadPage } from './pages/admin/UploadPage';
+import { LoginPage } from './pages/auth/LoginPage';
+import { RegisterPage } from './pages/auth/Registerpage';
+import { AudioDetailPage } from './pages/library/AudioDetailPage';
+import { LibraryPage } from './pages/library/LibraryPage';
+import { QueuePage } from './pages/library/QueuePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,14 @@ function AppRoutes() {
       {/* Public Routes */}
       <Route path="/" element={<Navigate to="/library" replace />} />
       <Route path="/library" element={<LibraryPage />} />
+      <Route
+        path="/queue"
+        element={
+          <PrivateRoute>
+            <QueuePage />
+          </PrivateRoute>
+        }
+      />
       <Route path="/library/:id" element={<AudioDetailPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
