@@ -51,15 +51,6 @@ public class BulkImportDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
-    public static class ScanResponse {
-        private DetectedStructure structure;
-        private FolderStructureMapping suggestedMapping;
-    }
-
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @Builder
     public static class JobStatus {
         private String jobId;
         private String status; // pending, processing, completed, failed
@@ -165,6 +156,9 @@ public class BulkImportDtos {
         private String topic;
         private String language;
         private String series;
+
+        private List<String> tags;     // e.g. ["sermons", "sunday", "faith"]
+        private List<String> genres;   // e.g. ["Religious", "Educational"]
         
         // File info
         private Long sizeBytes;
@@ -196,4 +190,3 @@ public class BulkImportDtos {
         private LevelMapping mapping;
     }
 }
-
