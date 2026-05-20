@@ -55,7 +55,8 @@ export function BulkUploadPage() {
   const quickUploadRef = useRef<HTMLInputElement>(null);
 
   // State
-  const [mode, setMode] = useState<UploadMode>('browser');
+  // CHANGED: Default to 'server' mode — S3 check will switch to 'browser' if S3 is enabled
+  const [mode, setMode] = useState<UploadMode>('server');
   const [step, setStep] = useState<Step>('select');
   const [files, setFiles] = useState<File[]>([]);
   const [structure, setStructure] = useState<DetectedStructure | null>(null);
@@ -244,9 +245,12 @@ export function BulkUploadPage() {
       try {
         const enabled = await s3Api.isEnabled();
         setUseS3(enabled);
+        // S3 enabled → "From Computer" (uploads to S3), S3 disabled → "From Server Path" (local batch)
+        setMode(enabled ? 'browser' : 'server');
         console.log('S3 storage:', enabled ? 'enabled' : 'disabled (using local)');
       } catch {
         setUseS3(false);
+        setMode('server');  
       }
     };
     checkS3();
@@ -269,7 +273,41 @@ export function BulkUploadPage() {
       return;
     }
 
-    // Otherwise, use the traditional upload method
+    if (mode === 'server') {
+      try {
+        setUploadProgress(prev => prev ? { ...prev, current: 'Importing batch...' } : null);
+        
+        const result = await api.post('/bulk-import/execute', {
+          sourcePath: serverPath,
+          mapping: mapping,
+          files: mappedFiles,
+        });
+
+        const data = result.data;
+        setUploadProgress({
+          total: data.totalFiles,
+          completed: data.successCount,
+          failed: data.errorCount + data.duplicateCount,
+          current: '',
+          errors: [
+            ...(data.errors || []).map((e: any) => ({ file: e.filename, error: e.error })),
+            ...(data.duplicateFiles || []).map((f: string) => ({ file: f, error: 'Duplicate' })),
+          ],
+        });
+      } catch (error) {
+        setUploadProgress(prev => prev ? {
+          ...prev,
+          errors: [{ file: 'Batch import', error: error instanceof Error ? error.message : 'Import failed' }],
+        } : null);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['audioStats'] });
+      queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
+      setStep('complete');
+      return;
+    }
+
+    // Browser mode without S3 — upload files one by one via regular upload endpoint
     const errors: Array<{ file: string; error: string }> = [];
     let completed = 0;
     let failed = 0;
@@ -283,27 +321,18 @@ export function BulkUploadPage() {
       } : null);
 
       try {
-        if (mode === 'browser') {
-          // Find the corresponding File object
-          const file = files.find(f => 
-            (f as any).webkitRelativePath === mappedFile.originalPath || 
-            f.name === mappedFile.filename
-          );
-          
-          if (file) {
-            await audioApi.upload({
-              file,
-              title: mappedFile.title,
-              speaker: mappedFile.speaker,
-              category: mappedFile.topic,
-              description: mappedFile.series,
-            });
-          }
-        } else {
-          // Server mode - call bulk import endpoint using the api client (includes auth token)
-          await api.post('/bulk-import/upload-single', {
-            sourcePath: serverPath,
-            file: mappedFile,
+        const file = files.find(f => 
+          (f as any).webkitRelativePath === mappedFile.originalPath || 
+          f.name === mappedFile.filename
+        );
+        
+        if (file) {
+          await audioApi.upload({
+            file,
+            title: mappedFile.title,
+            speaker: mappedFile.speaker,
+            category: mappedFile.topic,
+            description: mappedFile.series,
           });
         }
         completed++;
@@ -603,6 +632,20 @@ export function BulkUploadPage() {
                           {...({ webkitdirectory: 'true', directory: 'true' } as any)}
                           className="hidden"
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {!useS3 && (
+                    <div className="mt-6 p-4 bg-amber-50 rounded-lg flex gap-3">
+                      <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="text-sm text-amber-700">
+                        <p className="font-medium">Local storage mode</p>
+                        <p className="mt-1">
+                          S3 is not enabled. Files will be uploaded one at a time to local storage.
+                          For faster bulk import, use the <strong>From Server Path</strong> tab —
+                          place files on the server and import the entire batch at once.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -927,4 +970,3 @@ export function BulkUploadPage() {
 }
 
 export default BulkUploadPage;
-
