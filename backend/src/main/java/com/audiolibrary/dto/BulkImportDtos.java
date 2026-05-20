@@ -51,6 +51,15 @@ public class BulkImportDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
+    public static class ScanResponse {
+        private DetectedStructure structure;
+        private FolderStructureMapping suggestedMapping;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
     public static class JobStatus {
         private String jobId;
         private String status; // pending, processing, completed, failed
