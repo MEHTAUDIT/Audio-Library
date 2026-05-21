@@ -245,12 +245,13 @@ export function BulkUploadPage() {
       try {
         const enabled = await s3Api.isEnabled();
         setUseS3(enabled);
+        //  Auto-select mode based on S3 availability
         // S3 enabled → "From Computer" (uploads to S3), S3 disabled → "From Server Path" (local batch)
         setMode(enabled ? 'browser' : 'server');
         console.log('S3 storage:', enabled ? 'enabled' : 'disabled (using local)');
       } catch {
         setUseS3(false);
-        setMode('server');  
+        setMode('server'); 
       }
     };
     checkS3();

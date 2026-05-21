@@ -117,15 +117,21 @@ export const s3Api = {
    */
   isEnabled: async (): Promise<boolean> => {
     try {
-      // Try to hit the S3 endpoint - if it returns 404, S3 is not enabled
+      // Try to hit the S3 endpoint - if it works, S3 is enabled
       await api.post('/s3/upload-url', { filename: 'test.mp3', contentType: 'audio/mpeg' });
       return true;
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        return false;
-      }
-      // Other errors might just be auth issues, assume S3 is enabled
-      return true;
+    } catch {
+      // ┌──────────────────────────────────────────────────────────────┐
+      // │ FIXED: Return false for ALL errors, not just 404             │
+      // │                                                              │
+      // │ BEFORE: Only returned false for 404, returned true for       │
+      // │ everything else (500, network errors, undefined response).   │
+      // │ This made the frontend think S3 was enabled when it wasn't,  │
+      // │ causing /s3/upload-urls/batch calls that always fail locally. │
+      // │                                                              │
+      // │ AFTER: Any error = S3 not available.                         │
+      // └──────────────────────────────────────────────────────────────┘
+      return false;
     }
   },
 
@@ -550,4 +556,3 @@ export const s3Api = {
     };
   },
 };
-
