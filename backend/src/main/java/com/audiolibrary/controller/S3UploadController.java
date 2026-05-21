@@ -54,7 +54,8 @@ public class S3UploadController {
         PresignedUploadResponse response = s3StorageService.generateUploadUrl(
                 tenant.getId(),
                 request.getFilename(),
-                request.getContentType() != null ? request.getContentType() : "audio/mpeg"
+                // Generic fallback instead of audio-specific (supports video uploads too)
+                request.getContentType() != null ? request.getContentType() : "application/octet-stream"
         );
         
         return ResponseEntity.ok(response);
@@ -107,7 +108,7 @@ public class S3UploadController {
             return ResponseEntity.badRequest().build();
         }
         
-        //  Compute file hash from S3 object for duplicate detection
+        // Compute file hash from S3 object for duplicate detection
         // (was: null passed to createDraftWithFile, skipping dedup entirely)
         String fileHash = s3StorageService.computeObjectHash(request.getS3Key());  // ADDED
         if (fileHash != null) {
@@ -123,7 +124,10 @@ public class S3UploadController {
         String title = request.getTitle() != null ? request.getTitle() : 
                 request.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
         
-        // CHANGED: Wrapped in try/catch and pass fileHash instead of null
+        //  Detect media duration via ffprobe (downloads to temp file, probes, cleans up)
+        long durationSeconds = s3StorageService.getMediaDuration(request.getS3Key(), metadata.getContentType());
+        
+        //  Wrapped in try/catch and pass fileHash instead of null
         try {
             audioService.createDraftWithFile(
                     title,
@@ -134,11 +138,11 @@ public class S3UploadController {
                     request.getFilename(),
                     metadata.getSize(),
                     metadata.getContentType(),
-                    0L,
+                    durationSeconds,          // CHANGED: was 0L
                     tenant.getId(),
-                    fileHash             
+                    fileHash             // CHANGED: was null
             );
-        } catch (AudioService.DuplicateFileException e) {              
+        } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
             log.warn("Duplicate S3 upload rejected: {}", e.getMessage());
             return ResponseEntity.status(409).body(Map.of(
                     "error", "DUPLICATE_FILE",
@@ -179,7 +183,7 @@ public class S3UploadController {
                 
                 //  Compute file hash from S3 object for duplicate detection
                 // (was: null passed to createDraftWithFile, skipping dedup entirely)
-                String fileHash = s3StorageService.computeObjectHash(file.getS3Key()); 
+                String fileHash = s3StorageService.computeObjectHash(file.getS3Key());  // ADDED
                 if (fileHash != null) {
                     log.debug("Computed hash for batch file {}: {}", file.getS3Key(), fileHash);
                 } else {
@@ -189,6 +193,9 @@ public class S3UploadController {
                 
                 // Get metadata
                 S3ObjectMetadata metadata = s3StorageService.getObjectMetadata(file.getS3Key());
+                
+                // ADDED: Detect media duration via ffprobe
+                long durationSeconds = s3StorageService.getMediaDuration(file.getS3Key(), metadata.getContentType());
                 
                 // Create audio record with hash for dedup
                 String title = file.getTitle() != null ? file.getTitle() : 
@@ -203,13 +210,13 @@ public class S3UploadController {
                         file.getFilename(),
                         metadata.getSize(),
                         metadata.getContentType(),
-                        0L,
+                        durationSeconds,          // CHANGED: was 0L
                         tenant.getId(),
-                        fileHash         
+                        fileHash             // CHANGED: was null
                 );
                 
                 succeeded.add(file.getS3Key());
-            } catch (AudioService.DuplicateFileException e) {               
+            } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
                 log.warn("Duplicate file skipped in batch confirm: {} — {}", file.getS3Key(), e.getMessage());
                 failed.add(new ConfirmError(file.getS3Key(), file.getFilename(),
                         "DUPLICATE_FILE: " + e.getMessage()));
@@ -356,6 +363,8 @@ public class S3UploadController {
                     continue;
                 }
                 
+                // Compute file hash BEFORE moving from staging (while file is still at staging key)
+                // (was: no hash computed, null passed to createDraftWithFile)
                 String fileHash = s3StorageService.computeObjectHash(file.getStagingKey());  // ADDED
                 if (fileHash != null) {
                     log.debug("Computed hash for staged file {}: {}", file.getStagingKey(), fileHash);
@@ -370,6 +379,9 @@ public class S3UploadController {
                 // Get metadata from the permanent location
                 S3ObjectMetadata metadata = s3StorageService.getObjectMetadata(permanentKey);
                 
+                //  Detect media duration via ffprobe
+                long durationSeconds = s3StorageService.getMediaDuration(permanentKey, metadata.getContentType());
+                
                 // Create audio record with hash for dedup
                 String title = file.getTitle() != null ? file.getTitle() : 
                         file.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
@@ -383,13 +395,13 @@ public class S3UploadController {
                         file.getFilename(),
                         metadata.getSize(),
                         metadata.getContentType(),
-                        0L,
+                        durationSeconds,          // CHANGED: was 0L
                         tenant.getId(),
-                        fileHash           
+                        fileHash             // CHANGED: was null
                 );
                 
                 succeeded.add(permanentKey);
-            } catch (AudioService.DuplicateFileException e) {              
+            } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
                 log.warn("Duplicate file skipped in staging process: {} — {}", file.getStagingKey(), e.getMessage());
                 failed.add(new ConfirmError(file.getStagingKey(), file.getFilename(),
                         "DUPLICATE_FILE: " + e.getMessage()));

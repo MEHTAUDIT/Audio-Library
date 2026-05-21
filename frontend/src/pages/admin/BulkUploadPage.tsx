@@ -17,7 +17,7 @@ import {
   Play,
   RefreshCw,
   Info,
-  Copy, 
+  Copy,  // ADDED: icon for duplicate files
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
 import { FolderMappingConfig } from '../../components/bulk-import/FolderMappingConfig';
@@ -109,7 +109,7 @@ export function BulkUploadPage() {
 
     // Filter to audio files only
     const audioFiles = selectedFiles.filter(f => 
-      /\.(mp3|wav|ogg|m4a|flac|aac|wma)$/i.test(f.name)
+      /\.(mp3|wav|ogg|m4a|flac|aac|wma|mp4|mkv|avi|mov|webm|wmv|m4v)$/i.test(f.name) // CHANGED: added video formats
     );
 
     if (audioFiles.length === 0) {
@@ -341,7 +341,7 @@ export function BulkUploadPage() {
         completed++;
       } catch (error: any) {
         failed++;
-        //  Detect 409 duplicate response from AudioController and show friendly message
+        // CHANGED: Detect 409 duplicate response from AudioController and show friendly message
         if (error.response?.status === 409 && error.response?.data?.error === 'DUPLICATE_FILE') {
           errors.push({
             file: mappedFile.title,
@@ -428,6 +428,7 @@ export function BulkUploadPage() {
         }
       );
 
+      // Parse duplicate errors separately from real errors
       // so the UI can display them with different styling (info vs warning)
       const { duplicates, errors: realErrors } = splitDuplicatesAndErrors(result.failed);
       setUploadProgress({
@@ -934,6 +935,7 @@ export function BulkUploadPage() {
                       : 'bg-amber-100'
                   }`}
                 >
+
                   {uploadProgress.failed === 0 || uploadProgress.errors.every(e => e.isDuplicate) ? (
                     <Check className="w-10 h-10 text-emerald-600" />
                   ) : (
@@ -941,6 +943,7 @@ export function BulkUploadPage() {
                   )}
                 </motion.div>
                 
+
                 <h2 className="text-2xl font-bold text-slate-900 mb-2">
                   {uploadProgress.failed === 0
                     ? 'Import Complete!'
@@ -954,6 +957,7 @@ export function BulkUploadPage() {
                     ` (${uploadProgress.errors.filter(e => e.isDuplicate).length} duplicate${uploadProgress.errors.filter(e => e.isDuplicate).length > 1 ? 's' : ''} skipped)`}
                 </p>
                 
+                {/* CHANGED: Separate duplicate files (blue/info) from real errors (amber/warning) */}
                 {(() => {
                   const duplicates = uploadProgress.errors.filter(e => e.isDuplicate);
                   const realErrors = uploadProgress.errors.filter(e => !e.isDuplicate);

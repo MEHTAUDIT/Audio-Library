@@ -99,6 +99,7 @@ public class FlywayConfig {
                 "    tenant_id UUID," +
                 "    deleted_at TIMESTAMP," +
                 "    file_hash VARCHAR(64)," +            
+                "    media_type VARCHAR(10) DEFAULT 'AUDIO'," +  
                 "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
                 "    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
                 ")"

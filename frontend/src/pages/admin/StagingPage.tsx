@@ -22,6 +22,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
 import { audioApi } from '../../lib/audioApi';
 import type { Audio, AudioUpdateRequest } from '../../types/audio';
+import { isVideo } from '../../types/audio';
 import { api } from '../../lib/api';
 export function StagingPage() {
   const queryClient = useQueryClient();
@@ -29,8 +30,8 @@ export function StagingPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<AudioUpdateRequest>({});
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  // for progress bar [audio]
+  const audioRef = useRef<HTMLMediaElement>(null); 
+
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -456,13 +457,20 @@ export function StagingPage() {
         </motion.div>
       )}
 
-      {/* Hidden Audio Element */}
-      <audio
-        ref={audioRef}
-        className="hidden"
-        onEnded={() => setPlayingId(null)}
-      />
+      {/* : Use <video> element which handles both audio + video playback.
+          Visible with controls when playing a video file; hidden for audio files. */}
+      {(() => {
+        const playingItem = stagingAudio?.find(a => a.id === playingId);
+        const showVideo = playingItem && isVideo(playingItem);
+        return (
+          <video
+            ref={audioRef as React.RefObject<HTMLVideoElement>}
+            className={showVideo ? "max-w-md rounded-lg mx-auto mt-4" : "hidden"}
+            controls={!!showVideo}
+            onEnded={() => setPlayingId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
-

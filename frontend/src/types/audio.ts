@@ -1,5 +1,11 @@
 export type AudioStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
+export type MediaType = 'AUDIO' | 'VIDEO';
+
+export function isVideo(media: { mediaType?: MediaType; mimeType?: string }): boolean {
+  return media.mediaType === 'VIDEO' || (media.mimeType?.startsWith('video/') ?? false);
+}
+
 export interface Audio {
   id: string;
   title: string;
@@ -14,6 +20,7 @@ export interface Audio {
   storageKey: string | null;
   originalFilename: string | null;
   status: AudioStatus;
+  mediaType: MediaType; 
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;

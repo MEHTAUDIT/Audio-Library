@@ -117,7 +117,13 @@ public class AudioService {
         audio.setStatus(Audio.Status.DRAFT);
         audio.setStorageKey(storageKey);
         audio.setOriginalFilename(originalFilename);
-        audio.setFileHash(fileHash);   // ← ADDED: store hash for future duplicate checks
+        audio.setFileHash(fileHash);   
+
+        if (mimeType != null && mimeType.startsWith("video/")) {
+            audio.setMediaType(Audio.MediaType.VIDEO);
+        } else {
+            audio.setMediaType(Audio.MediaType.AUDIO);
+        }
 
         // Set the streaming URL
         Audio saved = audioRepository.save(audio);

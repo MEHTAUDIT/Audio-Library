@@ -21,6 +21,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { useAudioPlayback } from '../../lib/useAudioPlayback';
 import { userLibraryApi } from '../../lib/userLibraryApi';
 import type { Audio } from '../../types/audio';
+import { isVideo } from '../../types/audio';
 
 const container = {
   hidden: { opacity: 0 },
@@ -272,7 +273,7 @@ export function QueuePage() {
         <main className="max-w-7xl mx-auto px-6 py-8">
           <QueueSkeleton />
         </main>
-        <audio ref={audioRef} className="hidden" />
+        <video ref={audioRef as React.RefObject<HTMLVideoElement>} className="hidden" /> {/* CHANGED: video element for both audio + video */}
       </div>
     );
   }
@@ -307,7 +308,12 @@ export function QueuePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-      <audio ref={audioRef} className="hidden" />
+      {/*  Visible video player when playing video; hidden for audio */}
+      <video
+        ref={audioRef as React.RefObject<HTMLVideoElement>}
+        className={currentAudio && isVideo(currentAudio) ? 'max-w-md rounded-lg mx-auto mt-4' : 'hidden'}
+        controls={!!(currentAudio && isVideo(currentAudio))}
+      />
 
       <header className="relative overflow-hidden bg-gradient-to-br from-primary-700 via-primary-600 to-accent-600">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%239C92AC%22%20fill-opacity%3D%220.05%22%3E%3Cpath%20d%3D%22M36%2034v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6%2034v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6%204V0H4v4H0v2h4v4h2V6h4V4H6z%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')] opacity-10" />

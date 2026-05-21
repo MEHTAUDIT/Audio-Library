@@ -300,12 +300,6 @@ export const s3Api = {
     return response.data;
   },
 
-  // ┌──────────────────────────────────────────────────────────────────┐
-  // │ CHANGED: uploadFile — handle 409 duplicate from confirmUpload   │
-  // │                                                                  │
-  // │ BEFORE: Untyped Axios error propagated to caller                │
-  // │ AFTER: Catches duplicate, re-throws with friendly message       │
-  // └──────────────────────────────────────────────────────────────────┘
   /**
    * Upload a file with automatic pre-signed URL handling
    * This is the high-level function for single file upload
@@ -318,7 +312,7 @@ export const s3Api = {
     // 1. Get pre-signed URL
     const presigned = await s3Api.getUploadUrl({
       filename: file.name,
-      contentType: file.type || 'audio/mpeg',
+      contentType: file.type || 'application/octet-stream', 
       fileSize: file.size,
     });
     
@@ -348,7 +342,7 @@ export const s3Api = {
     const urlRequest: BatchUploadUrlRequest = {
       files: files.map(f => ({
         filename: f.file.name,
-        contentType: f.file.type || 'audio/mpeg',
+        contentType: f.file.type || 'application/octet-stream', 
         fileSize: f.file.size,
       })),
     };
@@ -527,7 +521,7 @@ export const s3Api = {
     const urlRequest: BatchUploadUrlRequest = {
       files: files.map(f => ({
         filename: f.name,
-        contentType: f.type || 'audio/mpeg',
+        contentType: f.type || 'application/octet-stream', 
         fileSize: f.size,
       })),
     };

@@ -31,8 +31,9 @@ public class BulkImportService {
     private final AudioTagJoinRepository audioTagJoinRepository;
     private final AudioGenreJoinRepository audioGenreJoinRepository;
 
-    private static final Set<String> AUDIO_EXTENSIONS = Set.of(
-            ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma"
+    private static final Set<String> MEDIA_EXTENSIONS = Set.of(
+            ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma",
+            ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".m4v"
     );
 
     private static final List<Pattern> SPEAKER_PATTERNS = List.of(
@@ -46,12 +47,12 @@ public class BulkImportService {
     );
 
     private static final Set<String> SKIP_PATTERNS = Set.of(
-            "audio", "files", "uploads", "library", "content", "media"
+            "audio", "video", "videos", "files", "uploads", "library", "content", "media" 
     );
 
     public boolean isAudioFile(String filename) {
         String lower = filename.toLowerCase();
-        return AUDIO_EXTENSIONS.stream().anyMatch(lower::endsWith);
+        return MEDIA_EXTENSIONS.stream().anyMatch(lower::endsWith);
     }
 
     public ScanResponse scanDirectory(String sourcePath) throws IOException {

@@ -23,6 +23,7 @@ public class AudioResponse {
     private String url;
     private String originalFilename;
     private String status;
+    private Audio.MediaType mediaType; 
     private LocalDateTime publishedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -44,6 +45,7 @@ public class AudioResponse {
                 .url(audio.getUrl())
                 .originalFilename(audio.getOriginalFilename())
                 .status(audio.getStatus() != null ? audio.getStatus().name() : null)
+                .mediaType(audio.getMediaType() != null ? audio.getMediaType() : Audio.MediaType.AUDIO) 
                 .publishedAt(audio.getPublishedAt())
                 .createdAt(audio.getCreatedAt())
                 .updatedAt(audio.getUpdatedAt())
@@ -74,4 +76,3 @@ public class AudioResponse {
         private String avatarUrl;
     }
 }
-

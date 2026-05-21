@@ -28,6 +28,7 @@ import { audioApi } from '../../lib/audioApi';
 import { useAuth } from '../../lib/auth';
 import { discoveryApi, userLibraryApi } from '../../lib/userLibraryApi';
 import type { Audio } from '../../types/audio';
+import { isVideo } from '../../types/audio'; 
 
 const container = {
   hidden: { opacity: 0 },
@@ -204,7 +205,7 @@ export function LibraryPage() {
   const [duration, setDuration] = useState(0);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'browse' | 'favorites' | 'queue' | 'history'>('browse');
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioRef = useRef<HTMLMediaElement>(null); // CHANGED: HTMLMediaElement for video support
 
   // Queries
   // Fetch a complete published list once to populate dropdown options
@@ -719,8 +720,41 @@ export function LibraryPage() {
         )}
       </main>
 
-      {/* Hidden Audio Element */}
-      <audio ref={audioRef} className="hidden" />
+      {/* CHANGED: Floating video player — visible above Now Playing Bar when playing video.
+          For audio files, the <video> element stays hidden (it still plays audio fine).
+          For video files, a fixed overlay appears with native browser controls. */}
+      {(() => {
+        const playingItem = publishedAudioAll?.find((a: Audio) => a.id === playingId);
+        const showVideo = playingItem && isVideo(playingItem);
+        return (
+          <>
+            <video
+              ref={audioRef as React.RefObject<HTMLVideoElement>}
+              className="hidden"
+            />
+            {showVideo && (
+              <div className="fixed bottom-24 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900">
+                  <span className="text-white text-xs font-medium truncate max-w-[200px]">
+                    {playingItem?.title}
+                  </span>
+                  <button
+                    onClick={() => { audioRef.current?.pause(); setPlayingId(null); }}
+                    className="text-white/60 hover:text-white ml-2 text-lg leading-none"
+                  >×</button>
+                </div>
+                <video
+                  src={audioRef.current?.src}
+                  className="w-80 max-h-48"
+                  controls
+                  autoPlay
+                  onEnded={() => setPlayingId(null)}
+                />
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Now Playing Bar */}
       <AnimatePresence>

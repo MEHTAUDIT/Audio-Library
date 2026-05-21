@@ -214,6 +214,7 @@ public class S3StorageService {
             log.debug("Computed hash for S3 object {}: {}", s3Key, hash);
             return hash;
         } catch (NoSuchAlgorithmException e) {
+            // SHA-256 is guaranteed by the JVM spec — this should never happen
             throw new RuntimeException("SHA-256 not available", e);
         } catch (IOException e) {
             log.error("Failed to compute hash for S3 object {}: {}", s3Key, e.getMessage(), e);
@@ -224,6 +225,97 @@ public class S3StorageService {
                     e.awsErrorDetails() != null ? e.awsErrorDetails().errorCode() : "unknown",
                     e.getMessage(), e);
             return null;
+        }
+    }
+
+    /**
+     * Detect media duration for an S3 object using ffprobe.
+     * Downloads to a temp file, probes it, then cleans up.
+     *
+     * @param s3Key       The S3 object key
+     * @param contentType The MIME type (e.g. "video/mp4") — used to pick the temp file extension
+     * @return Duration in seconds, or 0 if detection fails
+     */
+    public long getMediaDuration(String s3Key, String contentType) {
+        // Only probe video files and non-MP3 audio (MP3 is handled by mp3agic locally)
+        if (contentType == null || (!contentType.startsWith("video/") && !contentType.startsWith("audio/"))) {
+            return 0;
+        }
+
+        log.debug("Detecting media duration for S3 object: {} ({})", s3Key, contentType);
+
+        // Determine temp file extension from content type
+        String ext = switch (contentType) {
+            case "video/mp4" -> ".mp4";
+            case "video/webm" -> ".webm";
+            case "video/quicktime" -> ".mov";
+            case "video/x-matroska" -> ".mkv";
+            case "video/x-msvideo" -> ".avi";
+            case "video/x-ms-wmv" -> ".wmv";
+            case "audio/mpeg" -> ".mp3";
+            case "audio/wav" -> ".wav";
+            case "audio/ogg" -> ".ogg";
+            case "audio/flac" -> ".flac";
+            default -> ".tmp";
+        };
+
+        java.nio.file.Path tempFile = null;
+        try {
+            // Download S3 object to temp file
+            tempFile = java.nio.file.Files.createTempFile("s3-probe-", ext);
+            GetObjectRequest getRequest = GetObjectRequest.builder()
+                    .bucket(s3Properties.getBucket())
+                    .key(s3Key)
+                    .build();
+
+            try (ResponseInputStream<GetObjectResponse> stream = s3Client.getObject(getRequest);
+                 java.io.OutputStream out = java.nio.file.Files.newOutputStream(tempFile)) {
+                stream.transferTo(out);
+            }
+
+            // Run ffprobe on the temp file
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffprobe",
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "csv=p=0",
+                    tempFile.toAbsolutePath().toString()
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output = new String(process.getInputStream().readAllBytes()).trim();
+            int exitCode = process.waitFor();
+
+            if (exitCode == 0 && !output.isEmpty()) {
+                double durationSeconds = Double.parseDouble(output);
+                long rounded = Math.round(durationSeconds);
+                log.debug("FFprobe detected duration: {}s for S3 object {}", rounded, s3Key);
+                return rounded;
+            } else {
+                log.warn("FFprobe returned exit code {} for S3 object {}", exitCode, s3Key);
+                return 0;
+            }
+        } catch (java.io.IOException e) {
+            log.debug("FFprobe not available or I/O error for S3 object {}: {}", s3Key, e.getMessage());
+            return 0;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("FFprobe interrupted for S3 object {}", s3Key);
+            return 0;
+        } catch (NumberFormatException e) {
+            log.warn("FFprobe returned non-numeric duration for S3 object {}", s3Key);
+            return 0;
+        } catch (S3Exception e) {
+            log.error("S3 error downloading object for duration probe {}: {}", s3Key, e.getMessage());
+            return 0;
+        } finally {
+            // Always clean up temp file
+            if (tempFile != null) {
+                try {
+                    java.nio.file.Files.deleteIfExists(tempFile);
+                } catch (java.io.IOException ignored) {}
+            }
         }
     }
 
