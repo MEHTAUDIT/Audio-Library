@@ -17,6 +17,7 @@ import {
   Play,
   RefreshCw,
   Info,
+  Copy, 
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
 import { FolderMappingConfig } from '../../components/bulk-import/FolderMappingConfig';
@@ -30,7 +31,7 @@ import {
 } from '../../lib/bulkImportUtils';
 import { audioApi } from '../../lib/audioApi';
 import { api } from '../../lib/api';
-import { s3Api, type UploadProgress as S3UploadProgress } from '../../lib/s3Api';
+import { s3Api, type UploadProgress as S3UploadProgress, isDuplicateError, parseDuplicateMessage, splitDuplicatesAndErrors } from '../../lib/s3Api';
 import type {
   DetectedStructure,
   FolderStructureMapping,
@@ -45,7 +46,7 @@ interface UploadProgress {
   completed: number;
   failed: number;
   current: string;
-  errors: Array<{ file: string; error: string }>;
+  errors: Array<{ file: string; error: string; isDuplicate?: boolean }>; // CHANGED: added isDuplicate flag
 }
 
 export function BulkUploadPage() {
@@ -291,8 +292,8 @@ export function BulkUploadPage() {
           failed: data.errorCount + data.duplicateCount,
           current: '',
           errors: [
-            ...(data.errors || []).map((e: any) => ({ file: e.filename, error: e.error })),
-            ...(data.duplicateFiles || []).map((f: string) => ({ file: f, error: 'Duplicate' })),
+            ...(data.errors || []).map((e: any) => ({ file: e.filename, error: e.error, isDuplicate: false })),
+            ...(data.duplicateFiles || []).map((f: string) => ({ file: f, error: 'Duplicate', isDuplicate: true })), // CHANGED: tagged as duplicate
           ],
         });
       } catch (error) {
@@ -309,7 +310,8 @@ export function BulkUploadPage() {
     }
 
     // Browser mode without S3 — upload files one by one via regular upload endpoint
-    const errors: Array<{ file: string; error: string }> = [];
+    // CHANGED: errors array now tracks isDuplicate to show duplicates as info, not errors
+    const errors: Array<{ file: string; error: string; isDuplicate?: boolean }> = [];
     let completed = 0;
     let failed = 0;
 
@@ -337,12 +339,24 @@ export function BulkUploadPage() {
           });
         }
         completed++;
-      } catch (error) {
+      } catch (error: any) {
         failed++;
-        errors.push({
-          file: mappedFile.title,
-          error: error instanceof Error ? error.message : 'Upload failed',
-        });
+        //  Detect 409 duplicate response from AudioController and show friendly message
+        if (error.response?.status === 409 && error.response?.data?.error === 'DUPLICATE_FILE') {
+          errors.push({
+            file: mappedFile.title,
+            error: error.response.data.existingTitle
+              ? `Already exists as "${error.response.data.existingTitle}"`
+              : 'This file already exists in the library',
+            isDuplicate: true,
+          });
+        } else {
+          errors.push({
+            file: mappedFile.title,
+            error: error instanceof Error ? error.message : 'Upload failed',
+            isDuplicate: false,
+          });
+        }
       }
 
       setUploadProgress({
@@ -414,13 +428,17 @@ export function BulkUploadPage() {
         }
       );
 
-      // Set final progress
+      // so the UI can display them with different styling (info vs warning)
+      const { duplicates, errors: realErrors } = splitDuplicatesAndErrors(result.failed);
       setUploadProgress({
         total: result.totalProcessed,
         completed: result.successCount,
         failed: result.failureCount,
         current: '',
-        errors: result.failed.map(f => ({ file: f.filename, error: f.error })),
+        errors: [
+          ...realErrors.map(f => ({ file: f.filename, error: f.error, isDuplicate: false })),
+          ...duplicates.map(f => ({ file: f.filename, error: parseDuplicateMessage(f.error), isDuplicate: true })),
+        ],
       });
     } catch (error) {
       console.error('S3 bulk upload error:', error);
@@ -911,10 +929,12 @@ export function BulkUploadPage() {
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', damping: 15 }}
                   className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${
-                    uploadProgress.failed === 0 ? 'bg-emerald-100' : 'bg-amber-100'
+                    uploadProgress.failed === 0 || uploadProgress.errors.every(e => e.isDuplicate)
+                      ? 'bg-emerald-100'
+                      : 'bg-amber-100'
                   }`}
                 >
-                  {uploadProgress.failed === 0 ? (
+                  {uploadProgress.failed === 0 || uploadProgress.errors.every(e => e.isDuplicate) ? (
                     <Check className="w-10 h-10 text-emerald-600" />
                   ) : (
                     <AlertCircle className="w-10 h-10 text-amber-600" />
@@ -922,26 +942,58 @@ export function BulkUploadPage() {
                 </motion.div>
                 
                 <h2 className="text-2xl font-bold text-slate-900 mb-2">
-                  {uploadProgress.failed === 0 ? 'Import Complete!' : 'Import Completed with Errors'}
+                  {uploadProgress.failed === 0
+                    ? 'Import Complete!'
+                    : uploadProgress.errors.every(e => e.isDuplicate)
+                      ? 'Import Complete!'
+                      : 'Import Completed with Errors'}
                 </h2>
                 <p className="text-slate-500 mb-2">
                   Successfully imported {uploadProgress.completed} of {uploadProgress.total} files
+                  {uploadProgress.errors.filter(e => e.isDuplicate).length > 0 &&
+                    ` (${uploadProgress.errors.filter(e => e.isDuplicate).length} duplicate${uploadProgress.errors.filter(e => e.isDuplicate).length > 1 ? 's' : ''} skipped)`}
                 </p>
                 
-                {uploadProgress.failed > 0 && (
-                  <div className="max-w-md mx-auto mt-6 mb-8">
-                    <div className="p-4 bg-amber-50 rounded-lg text-left">
-                      <p className="font-medium text-amber-800 mb-2">
-                        {uploadProgress.failed} files failed:
-                      </p>
-                      <ul className="text-sm text-amber-700 space-y-1 max-h-32 overflow-y-auto">
-                        {uploadProgress.errors.map((err, i) => (
-                          <li key={i}>• {err.file}: {err.error}</li>
-                        ))}
-                      </ul>
+                {(() => {
+                  const duplicates = uploadProgress.errors.filter(e => e.isDuplicate);
+                  const realErrors = uploadProgress.errors.filter(e => !e.isDuplicate);
+                  return (
+                    <div className="max-w-md mx-auto mt-6 mb-8 space-y-4">
+                      {/* Duplicates — informational, not failures */}
+                      {duplicates.length > 0 && (
+                        <div className="p-4 bg-blue-50 rounded-lg text-left">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Copy className="w-4 h-4 text-blue-600" />
+                            <p className="font-medium text-blue-800">
+                              {duplicates.length} duplicate{duplicates.length > 1 ? 's' : ''} skipped:
+                            </p>
+                          </div>
+                          <ul className="text-sm text-blue-700 space-y-1 max-h-32 overflow-y-auto">
+                            {duplicates.map((err, i) => (
+                              <li key={`dup-${i}`}>• {err.file}: {err.error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {/* Real errors — actual failures */}
+                      {realErrors.length > 0 && (
+                        <div className="p-4 bg-amber-50 rounded-lg text-left">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className="w-4 h-4 text-amber-600" />
+                            <p className="font-medium text-amber-800">
+                              {realErrors.length} file{realErrors.length > 1 ? 's' : ''} failed:
+                            </p>
+                          </div>
+                          <ul className="text-sm text-amber-700 space-y-1 max-h-32 overflow-y-auto">
+                            {realErrors.map((err, i) => (
+                              <li key={`err-${i}`}>• {err.file}: {err.error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 
                 <div className="flex justify-center gap-4 mt-8">
                   <button

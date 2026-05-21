@@ -6,12 +6,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.core.ResponseInputStream;          
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
+import java.io.IOException;                                       
+import java.security.DigestInputStream;                           
+import java.security.MessageDigest;                               
+import java.security.NoSuchAlgorithmException;                    
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -174,6 +179,52 @@ public class S3StorageService {
                 .contentType(response.contentType())
                 .lastModified(response.lastModified())
                 .build();
+    }
+
+    /**
+     * Compute SHA-256 hash of an S3 object by streaming its content.
+     * Streams in 8KB chunks — does NOT load the entire file into memory.
+     * Used for duplicate detection on S3-uploaded files.
+     *
+     * @param s3Key The S3 object key
+     * @return SHA-256 hex string, or null if hashing fails
+     */
+    public String computeObjectHash(String s3Key) {
+        log.debug("Computing SHA-256 hash for S3 object: {}", s3Key);
+
+        GetObjectRequest getRequest = GetObjectRequest.builder()
+                .bucket(s3Properties.getBucket())
+                .key(s3Key)
+                .build();
+
+        try (ResponseInputStream<GetObjectResponse> s3InputStream = s3Client.getObject(getRequest)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (DigestInputStream dis = new DigestInputStream(s3InputStream, digest)) {
+                byte[] buffer = new byte[8192];
+                while (dis.read(buffer) != -1) {
+                    // reading through to compute hash
+                }
+            }
+            byte[] hashBytes = digest.digest();
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hashBytes) {
+                hex.append(String.format("%02x", b));
+            }
+            String hash = hex.toString();
+            log.debug("Computed hash for S3 object {}: {}", s3Key, hash);
+            return hash;
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        } catch (IOException e) {
+            log.error("Failed to compute hash for S3 object {}: {}", s3Key, e.getMessage(), e);
+            return null;
+        } catch (S3Exception e) {
+            log.error("S3 error computing hash for object {}: statusCode={} errorCode={} message={}",
+                    s3Key, e.statusCode(),
+                    e.awsErrorDetails() != null ? e.awsErrorDetails().errorCode() : "unknown",
+                    e.getMessage(), e);
+            return null;
+        }
     }
 
     /**
@@ -423,4 +474,3 @@ public class S3StorageService {
         return stagingFiles.size();
     }
 }
-

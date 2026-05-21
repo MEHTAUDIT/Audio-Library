@@ -109,6 +109,47 @@ export interface UploadProgress {
 
 export type ProgressCallback = (progress: UploadProgress) => void;
 
+/** Prefix the backend uses for duplicate file errors */
+export const DUPLICATE_ERROR_PREFIX = 'DUPLICATE_FILE:';
+
+/** 409 response body from single-file confirmUpload */
+export interface DuplicateFileInfo {
+  error: 'DUPLICATE_FILE';
+  message: string;
+  existingAudioId: string;
+  existingTitle: string;
+}
+
+/** Check if a ConfirmError is a duplicate (not a real failure) */
+export function isDuplicateError(err: ConfirmError): boolean {
+  return err.error.startsWith(DUPLICATE_ERROR_PREFIX);
+}
+
+/** Strip the DUPLICATE_FILE: prefix and return a user-friendly message */
+export function parseDuplicateMessage(error: string): string {
+  if (error.startsWith(DUPLICATE_ERROR_PREFIX)) {
+    return error.substring(DUPLICATE_ERROR_PREFIX.length).trim();
+  }
+  return error;
+}
+
+/** Split a BatchConfirmResult's failed array into duplicates and real errors */
+export function splitDuplicatesAndErrors(failed: ConfirmError[]): {
+  duplicates: ConfirmError[];
+  errors: ConfirmError[];
+} {
+  const duplicates: ConfirmError[] = [];
+  const errors: ConfirmError[] = [];
+  for (const err of failed) {
+    if (isDuplicateError(err)) {
+      duplicates.push(err);
+    } else {
+      errors.push(err);
+    }
+  }
+  return { duplicates, errors };
+}
+
 // ============ API Functions ============
 
 export const s3Api = {
@@ -121,16 +162,6 @@ export const s3Api = {
       await api.post('/s3/upload-url', { filename: 'test.mp3', contentType: 'audio/mpeg' });
       return true;
     } catch {
-      // ┌──────────────────────────────────────────────────────────────┐
-      // │ FIXED: Return false for ALL errors, not just 404             │
-      // │                                                              │
-      // │ BEFORE: Only returned false for 404, returned true for       │
-      // │ everything else (500, network errors, undefined response).   │
-      // │ This made the frontend think S3 was enabled when it wasn't,  │
-      // │ causing /s3/upload-urls/batch calls that always fail locally. │
-      // │                                                              │
-      // │ AFTER: Any error = S3 not available.                         │
-      // └──────────────────────────────────────────────────────────────┘
       return false;
     }
   },
@@ -233,10 +264,23 @@ export const s3Api = {
   },
 
   /**
-   * Confirm a single upload and create audio record
+   * Confirm a single upload and create audio record.
+   * Throws DuplicateFileInfo (as error.duplicateInfo) if the file is a duplicate.
    */
   confirmUpload: async (request: ConfirmUploadRequest): Promise<void> => {
-    await api.post('/s3/confirm-upload', request);
+    try {
+      await api.post('/s3/confirm-upload', request);
+    } catch (error: any) {
+      if (error.response?.status === 409 && error.response?.data?.error === 'DUPLICATE_FILE') {
+        // CHANGED: Wrap 409 in a typed error so callers can handle duplicates gracefully
+        const dupError = new Error(
+          error.response.data.message || 'This file already exists in the library'
+        ) as Error & { duplicateInfo: DuplicateFileInfo };
+        dupError.duplicateInfo = error.response.data as DuplicateFileInfo;
+        throw dupError;
+      }
+      throw error; // re-throw non-duplicate errors
+    }
   },
 
   /**
@@ -256,6 +300,12 @@ export const s3Api = {
     return response.data;
   },
 
+  // ┌──────────────────────────────────────────────────────────────────┐
+  // │ CHANGED: uploadFile — handle 409 duplicate from confirmUpload   │
+  // │                                                                  │
+  // │ BEFORE: Untyped Axios error propagated to caller                │
+  // │ AFTER: Catches duplicate, re-throws with friendly message       │
+  // └──────────────────────────────────────────────────────────────────┘
   /**
    * Upload a file with automatic pre-signed URL handling
    * This is the high-level function for single file upload
