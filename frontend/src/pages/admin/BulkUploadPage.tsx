@@ -17,6 +17,7 @@ import {
   Play,
   RefreshCw,
   Info,
+  Copy,  // ADDED: icon for duplicate files
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
 import { FolderMappingConfig } from '../../components/bulk-import/FolderMappingConfig';
@@ -30,7 +31,7 @@ import {
 } from '../../lib/bulkImportUtils';
 import { audioApi } from '../../lib/audioApi';
 import { api } from '../../lib/api';
-import { s3Api, type UploadProgress as S3UploadProgress } from '../../lib/s3Api';
+import { s3Api, type UploadProgress as S3UploadProgress, isDuplicateError, parseDuplicateMessage, splitDuplicatesAndErrors } from '../../lib/s3Api';
 import type {
   DetectedStructure,
   FolderStructureMapping,
@@ -45,7 +46,7 @@ interface UploadProgress {
   completed: number;
   failed: number;
   current: string;
-  errors: Array<{ file: string; error: string }>;
+  errors: Array<{ file: string; error: string; isDuplicate?: boolean }>; // CHANGED: added isDuplicate flag
 }
 
 export function BulkUploadPage() {
@@ -55,7 +56,8 @@ export function BulkUploadPage() {
   const quickUploadRef = useRef<HTMLInputElement>(null);
 
   // State
-  const [mode, setMode] = useState<UploadMode>('browser');
+  // CHANGED: Default to 'server' mode — S3 check will switch to 'browser' if S3 is enabled
+  const [mode, setMode] = useState<UploadMode>('server');
   const [step, setStep] = useState<Step>('select');
   const [files, setFiles] = useState<File[]>([]);
   const [structure, setStructure] = useState<DetectedStructure | null>(null);
@@ -107,7 +109,7 @@ export function BulkUploadPage() {
 
     // Filter to audio files only
     const audioFiles = selectedFiles.filter(f => 
-      /\.(mp3|wav|ogg|m4a|flac|aac|wma)$/i.test(f.name)
+      /\.(mp3|wav|ogg|m4a|flac|aac|wma|mp4|mkv|avi|mov|webm|wmv|m4v)$/i.test(f.name) // CHANGED: added video formats
     );
 
     if (audioFiles.length === 0) {
@@ -244,9 +246,13 @@ export function BulkUploadPage() {
       try {
         const enabled = await s3Api.isEnabled();
         setUseS3(enabled);
+        //  Auto-select mode based on S3 availability
+        // S3 enabled → "From Computer" (uploads to S3), S3 disabled → "From Server Path" (local batch)
+        setMode(enabled ? 'browser' : 'server');
         console.log('S3 storage:', enabled ? 'enabled' : 'disabled (using local)');
       } catch {
         setUseS3(false);
+        setMode('server'); 
       }
     };
     checkS3();
@@ -269,8 +275,43 @@ export function BulkUploadPage() {
       return;
     }
 
-    // Otherwise, use the traditional upload method
-    const errors: Array<{ file: string; error: string }> = [];
+    if (mode === 'server') {
+      try {
+        setUploadProgress(prev => prev ? { ...prev, current: 'Importing batch...' } : null);
+        
+        const result = await api.post('/bulk-import/execute', {
+          sourcePath: serverPath,
+          mapping: mapping,
+          files: mappedFiles,
+        });
+
+        const data = result.data;
+        setUploadProgress({
+          total: data.totalFiles,
+          completed: data.successCount,
+          failed: data.errorCount + data.duplicateCount,
+          current: '',
+          errors: [
+            ...(data.errors || []).map((e: any) => ({ file: e.filename, error: e.error, isDuplicate: false })),
+            ...(data.duplicateFiles || []).map((f: string) => ({ file: f, error: 'Duplicate', isDuplicate: true })), // CHANGED: tagged as duplicate
+          ],
+        });
+      } catch (error) {
+        setUploadProgress(prev => prev ? {
+          ...prev,
+          errors: [{ file: 'Batch import', error: error instanceof Error ? error.message : 'Import failed' }],
+        } : null);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['audioStats'] });
+      queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
+      setStep('complete');
+      return;
+    }
+
+    // Browser mode without S3 — upload files one by one via regular upload endpoint
+    // CHANGED: errors array now tracks isDuplicate to show duplicates as info, not errors
+    const errors: Array<{ file: string; error: string; isDuplicate?: boolean }> = [];
     let completed = 0;
     let failed = 0;
 
@@ -283,36 +324,39 @@ export function BulkUploadPage() {
       } : null);
 
       try {
-        if (mode === 'browser') {
-          // Find the corresponding File object
-          const file = files.find(f => 
-            (f as any).webkitRelativePath === mappedFile.originalPath || 
-            f.name === mappedFile.filename
-          );
-          
-          if (file) {
-            await audioApi.upload({
-              file,
-              title: mappedFile.title,
-              speaker: mappedFile.speaker,
-              category: mappedFile.topic,
-              description: mappedFile.series,
-            });
-          }
-        } else {
-          // Server mode - call bulk import endpoint using the api client (includes auth token)
-          await api.post('/bulk-import/upload-single', {
-            sourcePath: serverPath,
-            file: mappedFile,
+        const file = files.find(f => 
+          (f as any).webkitRelativePath === mappedFile.originalPath || 
+          f.name === mappedFile.filename
+        );
+        
+        if (file) {
+          await audioApi.upload({
+            file,
+            title: mappedFile.title,
+            speaker: mappedFile.speaker,
+            category: mappedFile.topic,
+            description: mappedFile.series,
           });
         }
         completed++;
-      } catch (error) {
+      } catch (error: any) {
         failed++;
-        errors.push({
-          file: mappedFile.title,
-          error: error instanceof Error ? error.message : 'Upload failed',
-        });
+        // CHANGED: Detect 409 duplicate response from AudioController and show friendly message
+        if (error.response?.status === 409 && error.response?.data?.error === 'DUPLICATE_FILE') {
+          errors.push({
+            file: mappedFile.title,
+            error: error.response.data.existingTitle
+              ? `Already exists as "${error.response.data.existingTitle}"`
+              : 'This file already exists in the library',
+            isDuplicate: true,
+          });
+        } else {
+          errors.push({
+            file: mappedFile.title,
+            error: error instanceof Error ? error.message : 'Upload failed',
+            isDuplicate: false,
+          });
+        }
       }
 
       setUploadProgress({
@@ -384,13 +428,18 @@ export function BulkUploadPage() {
         }
       );
 
-      // Set final progress
+      // Parse duplicate errors separately from real errors
+      // so the UI can display them with different styling (info vs warning)
+      const { duplicates, errors: realErrors } = splitDuplicatesAndErrors(result.failed);
       setUploadProgress({
         total: result.totalProcessed,
         completed: result.successCount,
         failed: result.failureCount,
         current: '',
-        errors: result.failed.map(f => ({ file: f.filename, error: f.error })),
+        errors: [
+          ...realErrors.map(f => ({ file: f.filename, error: f.error, isDuplicate: false })),
+          ...duplicates.map(f => ({ file: f.filename, error: parseDuplicateMessage(f.error), isDuplicate: true })),
+        ],
       });
     } catch (error) {
       console.error('S3 bulk upload error:', error);
@@ -603,6 +652,20 @@ export function BulkUploadPage() {
                           {...({ webkitdirectory: 'true', directory: 'true' } as any)}
                           className="hidden"
                         />
+                      </div>
+                    </div>
+                  )}
+
+                  {!useS3 && (
+                    <div className="mt-6 p-4 bg-amber-50 rounded-lg flex gap-3">
+                      <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="text-sm text-amber-700">
+                        <p className="font-medium">Local storage mode</p>
+                        <p className="mt-1">
+                          S3 is not enabled. Files will be uploaded one at a time to local storage.
+                          For faster bulk import, use the <strong>From Server Path</strong> tab —
+                          place files on the server and import the entire batch at once.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -867,37 +930,74 @@ export function BulkUploadPage() {
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', damping: 15 }}
                   className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${
-                    uploadProgress.failed === 0 ? 'bg-emerald-100' : 'bg-amber-100'
+                    uploadProgress.failed === 0 || uploadProgress.errors.every(e => e.isDuplicate)
+                      ? 'bg-emerald-100'
+                      : 'bg-amber-100'
                   }`}
                 >
-                  {uploadProgress.failed === 0 ? (
+
+                  {uploadProgress.failed === 0 || uploadProgress.errors.every(e => e.isDuplicate) ? (
                     <Check className="w-10 h-10 text-emerald-600" />
                   ) : (
                     <AlertCircle className="w-10 h-10 text-amber-600" />
                   )}
                 </motion.div>
                 
+
                 <h2 className="text-2xl font-bold text-slate-900 mb-2">
-                  {uploadProgress.failed === 0 ? 'Import Complete!' : 'Import Completed with Errors'}
+                  {uploadProgress.failed === 0
+                    ? 'Import Complete!'
+                    : uploadProgress.errors.every(e => e.isDuplicate)
+                      ? 'Import Complete!'
+                      : 'Import Completed with Errors'}
                 </h2>
                 <p className="text-slate-500 mb-2">
                   Successfully imported {uploadProgress.completed} of {uploadProgress.total} files
+                  {uploadProgress.errors.filter(e => e.isDuplicate).length > 0 &&
+                    ` (${uploadProgress.errors.filter(e => e.isDuplicate).length} duplicate${uploadProgress.errors.filter(e => e.isDuplicate).length > 1 ? 's' : ''} skipped)`}
                 </p>
                 
-                {uploadProgress.failed > 0 && (
-                  <div className="max-w-md mx-auto mt-6 mb-8">
-                    <div className="p-4 bg-amber-50 rounded-lg text-left">
-                      <p className="font-medium text-amber-800 mb-2">
-                        {uploadProgress.failed} files failed:
-                      </p>
-                      <ul className="text-sm text-amber-700 space-y-1 max-h-32 overflow-y-auto">
-                        {uploadProgress.errors.map((err, i) => (
-                          <li key={i}>• {err.file}: {err.error}</li>
-                        ))}
-                      </ul>
+                {/* CHANGED: Separate duplicate files (blue/info) from real errors (amber/warning) */}
+                {(() => {
+                  const duplicates = uploadProgress.errors.filter(e => e.isDuplicate);
+                  const realErrors = uploadProgress.errors.filter(e => !e.isDuplicate);
+                  return (
+                    <div className="max-w-md mx-auto mt-6 mb-8 space-y-4">
+                      {/* Duplicates — informational, not failures */}
+                      {duplicates.length > 0 && (
+                        <div className="p-4 bg-blue-50 rounded-lg text-left">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Copy className="w-4 h-4 text-blue-600" />
+                            <p className="font-medium text-blue-800">
+                              {duplicates.length} duplicate{duplicates.length > 1 ? 's' : ''} skipped:
+                            </p>
+                          </div>
+                          <ul className="text-sm text-blue-700 space-y-1 max-h-32 overflow-y-auto">
+                            {duplicates.map((err, i) => (
+                              <li key={`dup-${i}`}>• {err.file}: {err.error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {/* Real errors — actual failures */}
+                      {realErrors.length > 0 && (
+                        <div className="p-4 bg-amber-50 rounded-lg text-left">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className="w-4 h-4 text-amber-600" />
+                            <p className="font-medium text-amber-800">
+                              {realErrors.length} file{realErrors.length > 1 ? 's' : ''} failed:
+                            </p>
+                          </div>
+                          <ul className="text-sm text-amber-700 space-y-1 max-h-32 overflow-y-auto">
+                            {realErrors.map((err, i) => (
+                              <li key={`err-${i}`}>• {err.file}: {err.error}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 
                 <div className="flex justify-center gap-4 mt-8">
                   <button
@@ -927,4 +1027,3 @@ export function BulkUploadPage() {
 }
 
 export default BulkUploadPage;
-

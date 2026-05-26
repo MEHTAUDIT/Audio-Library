@@ -109,6 +109,47 @@ export interface UploadProgress {
 
 export type ProgressCallback = (progress: UploadProgress) => void;
 
+/** Prefix the backend uses for duplicate file errors */
+export const DUPLICATE_ERROR_PREFIX = 'DUPLICATE_FILE:';
+
+/** 409 response body from single-file confirmUpload */
+export interface DuplicateFileInfo {
+  error: 'DUPLICATE_FILE';
+  message: string;
+  existingAudioId: string;
+  existingTitle: string;
+}
+
+/** Check if a ConfirmError is a duplicate (not a real failure) */
+export function isDuplicateError(err: ConfirmError): boolean {
+  return err.error.startsWith(DUPLICATE_ERROR_PREFIX);
+}
+
+/** Strip the DUPLICATE_FILE: prefix and return a user-friendly message */
+export function parseDuplicateMessage(error: string): string {
+  if (error.startsWith(DUPLICATE_ERROR_PREFIX)) {
+    return error.substring(DUPLICATE_ERROR_PREFIX.length).trim();
+  }
+  return error;
+}
+
+/** Split a BatchConfirmResult's failed array into duplicates and real errors */
+export function splitDuplicatesAndErrors(failed: ConfirmError[]): {
+  duplicates: ConfirmError[];
+  errors: ConfirmError[];
+} {
+  const duplicates: ConfirmError[] = [];
+  const errors: ConfirmError[] = [];
+  for (const err of failed) {
+    if (isDuplicateError(err)) {
+      duplicates.push(err);
+    } else {
+      errors.push(err);
+    }
+  }
+  return { duplicates, errors };
+}
+
 // ============ API Functions ============
 
 export const s3Api = {
@@ -117,15 +158,11 @@ export const s3Api = {
    */
   isEnabled: async (): Promise<boolean> => {
     try {
-      // Try to hit the S3 endpoint - if it returns 404, S3 is not enabled
+      // Try to hit the S3 endpoint - if it works, S3 is enabled
       await api.post('/s3/upload-url', { filename: 'test.mp3', contentType: 'audio/mpeg' });
       return true;
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        return false;
-      }
-      // Other errors might just be auth issues, assume S3 is enabled
-      return true;
+    } catch {
+      return false;
     }
   },
 
@@ -227,10 +264,23 @@ export const s3Api = {
   },
 
   /**
-   * Confirm a single upload and create audio record
+   * Confirm a single upload and create audio record.
+   * Throws DuplicateFileInfo (as error.duplicateInfo) if the file is a duplicate.
    */
   confirmUpload: async (request: ConfirmUploadRequest): Promise<void> => {
-    await api.post('/s3/confirm-upload', request);
+    try {
+      await api.post('/s3/confirm-upload', request);
+    } catch (error: any) {
+      if (error.response?.status === 409 && error.response?.data?.error === 'DUPLICATE_FILE') {
+        // CHANGED: Wrap 409 in a typed error so callers can handle duplicates gracefully
+        const dupError = new Error(
+          error.response.data.message || 'This file already exists in the library'
+        ) as Error & { duplicateInfo: DuplicateFileInfo };
+        dupError.duplicateInfo = error.response.data as DuplicateFileInfo;
+        throw dupError;
+      }
+      throw error; // re-throw non-duplicate errors
+    }
   },
 
   /**
@@ -262,7 +312,7 @@ export const s3Api = {
     // 1. Get pre-signed URL
     const presigned = await s3Api.getUploadUrl({
       filename: file.name,
-      contentType: file.type || 'audio/mpeg',
+      contentType: file.type || 'application/octet-stream', 
       fileSize: file.size,
     });
     
@@ -292,7 +342,7 @@ export const s3Api = {
     const urlRequest: BatchUploadUrlRequest = {
       files: files.map(f => ({
         filename: f.file.name,
-        contentType: f.file.type || 'audio/mpeg',
+        contentType: f.file.type || 'application/octet-stream', 
         fileSize: f.file.size,
       })),
     };
@@ -471,7 +521,7 @@ export const s3Api = {
     const urlRequest: BatchUploadUrlRequest = {
       files: files.map(f => ({
         filename: f.name,
-        contentType: f.type || 'audio/mpeg',
+        contentType: f.type || 'application/octet-stream', 
         fileSize: f.size,
       })),
     };
@@ -550,4 +600,3 @@ export const s3Api = {
     };
   },
 };
-

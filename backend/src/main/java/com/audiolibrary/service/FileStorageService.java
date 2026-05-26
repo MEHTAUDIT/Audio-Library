@@ -122,7 +122,17 @@ public class FileStorageService implements StorageService {
                 return durationSeconds;
             }
             
-            // For other formats, estimate based on file size
+            // CHANGED: Use ffprobe to detect video duration (was: return 0)
+            // ffprobe is typically available on Linux servers with ffmpeg installed.
+            // Falls back to 0 if ffprobe is not installed or fails.
+            String lower = storageKey.toLowerCase();
+            if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".avi") ||
+                lower.endsWith(".mov") || lower.endsWith(".webm") || lower.endsWith(".wmv") ||
+                lower.endsWith(".m4v")) {
+                return getMediaDurationViaFfprobe(filePath);
+            }
+            
+            // For other audio formats, estimate based on file size
             long fileSizeBytes = Files.size(filePath);
             long estimatedSeconds = fileSizeBytes / 16000;
             log.debug("Estimated audio duration: {} seconds", estimatedSeconds);
@@ -130,6 +140,48 @@ public class FileStorageService implements StorageService {
             
         } catch (Exception e) {
             log.warn("Could not determine audio duration: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     *  Use ffprobe (from FFmpeg) to detect media duration for video files.
+     * Runs: ffprobe -v error -show_entries format=duration -of csv=p=0 <file>
+     * Returns duration in seconds, or 0 if ffprobe is not installed or fails.
+     */
+    private long getMediaDurationViaFfprobe(Path filePath) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffprobe",
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "csv=p=0",
+                    filePath.toAbsolutePath().toString()
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            String output = new String(process.getInputStream().readAllBytes()).trim();
+            int exitCode = process.waitFor();
+
+            if (exitCode == 0 && !output.isEmpty()) {
+                double durationSeconds = Double.parseDouble(output);
+                long rounded = Math.round(durationSeconds);
+                log.debug("FFprobe detected duration: {}s for {}", rounded, filePath.getFileName());
+                return rounded;
+            } else {
+                log.warn("FFprobe returned exit code {} for {}", exitCode, filePath.getFileName());
+                return 0;
+            }
+        } catch (java.io.IOException e) {
+            log.debug("FFprobe not available, cannot detect video duration: {}", e.getMessage());
+            return 0;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("FFprobe interrupted for {}", filePath.getFileName());
+            return 0;
+        } catch (NumberFormatException e) {
+            log.warn("FFprobe returned non-numeric duration for {}: {}", filePath.getFileName(), e.getMessage());
             return 0;
         }
     }

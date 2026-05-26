@@ -92,10 +92,10 @@ public class AudioController {
             // For local storage, serve the file directly
             Resource resource = storageService.loadFileAsResource(audio.getStorageKey());
             
-            String contentType = audio.getMimeType() != null ? audio.getMimeType() : "audio/mpeg";
-            String filename = audio.getOriginalFilename() != null ? audio.getOriginalFilename() : "audio.mp3";
+            String contentType = audio.getMimeType() != null ? audio.getMimeType() : "application/octet-stream";
+            String filename = audio.getOriginalFilename() != null ? audio.getOriginalFilename() : "media_file";
             
-            log.info("Streaming audio: {}, contentType: {}", filename, contentType);
+            log.info("Streaming media: {}, contentType: {}", filename, contentType);
             
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
@@ -135,8 +135,9 @@ public class AudioController {
             // For local storage, serve the file directly
             Resource resource = storageService.loadFileAsResource(audio.getStorageKey());
             
-            String contentType = audio.getMimeType() != null ? audio.getMimeType() : "audio/mpeg";
-            String filename = audio.getOriginalFilename() != null ? audio.getOriginalFilename() : "audio.mp3";
+            // Use generic fallback instead of audio-specific default (supports video too)
+            String contentType = audio.getMimeType() != null ? audio.getMimeType() : "application/octet-stream";
+            String filename = audio.getOriginalFilename() != null ? audio.getOriginalFilename() : "media_file";
             
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
@@ -148,13 +149,11 @@ public class AudioController {
         }
     }
 
-    // ==================== ADMIN ENDPOINTS ====================
-
-    @Operation(summary = "Upload new audio file", description = "Upload an audio file with metadata. Requires ADMIN role. Saved as DRAFT status.")
+    @Operation(summary = "Upload new media file", description = "Upload an audio or video file with metadata. Requires ADMIN role. Saved as DRAFT status.")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
     public ResponseEntity<?> uploadAudio(   
-            @Parameter(description = "Audio file (MP3, WAV, etc.)")
+            @Parameter(description = "Media file (MP3, WAV, MP4, MKV, etc.)")
             @RequestPart("file") MultipartFile file,
             @Parameter(description = "Title of the audio")
             @RequestPart("title") String title,
@@ -276,7 +275,6 @@ public class AudioController {
         return ResponseEntity.noContent().build();
     }
 
-    // ==================== BULK ACTION ENDPOINTS ====================
 
     @Operation(summary = "Bulk publish audio",
             description = "Publish multiple audio files at once (DRAFT → PUBLISHED). " +

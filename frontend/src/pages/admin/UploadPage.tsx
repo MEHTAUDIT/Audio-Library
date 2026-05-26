@@ -52,13 +52,14 @@ export function UploadPage() {
   });
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const audioFiles = acceptedFiles.filter((file) =>
-      file.type.startsWith('audio/')
+
+    const mediaFiles = acceptedFiles.filter((file) =>
+      file.type.startsWith('audio/') || file.type.startsWith('video/')
     );
-    if (audioFiles.length > 0) {
-      setFiles(audioFiles);
+    if (mediaFiles.length > 0) {
+      setFiles(mediaFiles);
       // Auto-fill title from filename
-      const fileName = audioFiles[0].name.replace(/\.[^/.]+$/, '');
+      const fileName = mediaFiles[0].name.replace(/\.[^/.]+$/, '');
       setFormData((prev) => ({
         ...prev,
         title: fileName.replace(/[-_]/g, ' '),
@@ -71,6 +72,7 @@ export function UploadPage() {
     onDrop,
     accept: {
       'audio/*': ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'],
+      'video/*': ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'], 
     },
     maxFiles: 1,
   });
@@ -117,7 +119,7 @@ export function UploadPage() {
       >
         <h1 className="text-3xl font-bold text-slate-900">Upload Audio</h1>
         <p className="text-slate-500 mt-1">
-          Add new audio files to your library. They'll be saved as drafts for review.
+          Add new audio or video files to your library. They'll be saved as drafts for review.
         </p>
       </motion.div>
 
@@ -201,10 +203,10 @@ export function UploadPage() {
                     </div>
                     <div>
                       <p className="text-lg font-medium text-slate-700">
-                        {isDragActive ? 'Drop your audio file here' : 'Drag & drop audio file'}
+                        {isDragActive ? 'Drop your file here' : 'Drag & drop audio or video file'}
                       </p>
                       <p className="text-slate-500 mt-1">
-                        or click to browse • MP3, WAV, OGG, M4A, FLAC
+                        or click to browse • MP3, WAV, OGG, M4A, FLAC, MP4, MOV, MKV
                       </p>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -230,7 +232,7 @@ export function UploadPage() {
               <CardHeader>
                 <CardTitle>Audio Details</CardTitle>
                 <CardDescription>
-                  Fill in the metadata for your audio file
+                  Fill in the metadata for your file
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -415,4 +417,3 @@ export function UploadPage() {
     </div>
   );
 }
-

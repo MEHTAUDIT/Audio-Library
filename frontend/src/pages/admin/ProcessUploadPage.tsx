@@ -17,9 +17,10 @@ import {
   Tag,
   FileText,
   Save,
+  Copy,  
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
-import { s3Api, type S3ObjectInfo, type StagingFileMetadata } from '../../lib/s3Api';
+import { s3Api, type S3ObjectInfo, type StagingFileMetadata, isDuplicateError, parseDuplicateMessage } from '../../lib/s3Api';
 import { formatFileSize } from '../../lib/bulkImportUtils';
 
 interface FileMetadataEdit extends StagingFileMetadata {
@@ -36,10 +37,12 @@ export function ProcessUploadPage() {
   const [loading, setLoading] = useState(true);
   const [files, setFiles] = useState<FileMetadataEdit[]>([]);
   const [processing, setProcessing] = useState(false);
+  // CHANGED: Added duplicates array to separate from real errors
   const [processResult, setProcessResult] = useState<{
     success: number;
     failed: number;
     errors: string[];
+    duplicates: string[];
   } | null>(null);
 
   // Bulk edit state
@@ -143,18 +146,21 @@ export function ProcessUploadPage() {
 
       const result = await s3Api.processStagedFiles(request);
 
+      const duplicateEntries = result.failed.filter(f => isDuplicateError(f));
+      const errorEntries = result.failed.filter(f => !isDuplicateError(f));
       setProcessResult({
         success: result.successCount,
-        failed: result.failureCount,
-        errors: result.failed.map(f => `${f.filename}: ${f.error}`),
+        failed: errorEntries.length,
+        errors: errorEntries.map(f => `${f.filename}: ${f.error}`),
+        duplicates: duplicateEntries.map(f => `${f.filename}: ${parseDuplicateMessage(f.error)}`),
       });
 
       // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ['audioStats'] });
       queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
 
-      if (result.failureCount === 0) {
-        // All successful - redirect to staging after a moment
+      // CHANGED: Redirect if no real errors (duplicates are informational, not blocking)
+      if (errorEntries.length === 0) {
         setTimeout(() => {
           navigate('/admin/staging');
         }, 2000);
@@ -165,6 +171,7 @@ export function ProcessUploadPage() {
         success: 0,
         failed: files.length,
         errors: ['Processing failed: ' + (error instanceof Error ? error.message : 'Unknown error')],
+        duplicates: [],
       });
     } finally {
       setProcessing(false);
@@ -439,16 +446,38 @@ export function ProcessUploadPage() {
                   ) : (
                     <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
                   )}
-                  <div>
+                  <div className="flex-1">
                     <p className="font-medium text-slate-900">
                       {processResult.failed === 0
                         ? `Successfully imported ${processResult.success} files!`
                         : `Imported ${processResult.success} files, ${processResult.failed} failed`}
+                      {processResult.duplicates.length > 0 &&
+                        ` (${processResult.duplicates.length} duplicate${processResult.duplicates.length > 1 ? 's' : ''} skipped)`}
                     </p>
+                    {/* Duplicates — info box */}
+                    {processResult.duplicates.length > 0 && (
+                      <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Copy className="w-3.5 h-3.5 text-blue-600" />
+                          <p className="text-sm font-medium text-blue-800">
+                            {processResult.duplicates.length} duplicate{processResult.duplicates.length > 1 ? 's' : ''} skipped:
+                          </p>
+                        </div>
+                        <ul className="text-sm text-blue-700 space-y-0.5">
+                          {processResult.duplicates.slice(0, 5).map((d, i) => (
+                            <li key={`dup-${i}`}>• {d}</li>
+                          ))}
+                          {processResult.duplicates.length > 5 && (
+                            <li>• ...and {processResult.duplicates.length - 5} more</li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                    {/* Real errors — warning box */}
                     {processResult.errors.length > 0 && (
                       <ul className="text-sm text-slate-600 mt-2 space-y-1">
                         {processResult.errors.slice(0, 5).map((err, i) => (
-                          <li key={i}>• {err}</li>
+                          <li key={`err-${i}`}>• {err}</li>
                         ))}
                         {processResult.errors.length > 5 && (
                           <li>• ...and {processResult.errors.length - 5} more errors</li>
@@ -513,4 +542,3 @@ export function ProcessUploadPage() {
 }
 
 export default ProcessUploadPage;
-

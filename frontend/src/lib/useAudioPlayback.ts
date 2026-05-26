@@ -11,7 +11,9 @@ interface UseAudioPlaybackOptions {
 }
 
 export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
-  const audioRef = useRef<HTMLAudioElement>(null);
+  // CHANGED: HTMLMediaElement supports both <audio> and <video> elements
+  // (play, pause, seek, timeupdate, loadedmetadata work identically on both)
+  const mediaRef = useRef<HTMLMediaElement>(null);
   const objectUrlRef = useRef<string | null>(null);
 
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -27,7 +29,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   }, []);
 
   const stop = useCallback(() => {
-    const audio = audioRef.current;
+    const audio = mediaRef.current;
     if (!audio) return;
 
     audio.pause();
@@ -42,7 +44,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   }, [revokeObjectUrl]);
 
   useEffect(() => {
-    const audio = audioRef.current;
+    const audio = mediaRef.current;
     if (!audio) return;
 
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
@@ -75,7 +77,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
 
   const playAudio = useCallback(
     async (audioItem: Pick<Audio, 'id'>, playbackOptions: StreamPlaybackOptions = {}) => {
-      const audio = audioRef.current;
+      const audio = mediaRef.current;
       if (!audio) return;
 
       const shouldRestart = playbackOptions.restart === true;
@@ -116,7 +118,8 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   );
 
   return {
-    audioRef,
+    mediaRef,        // CHANGED: renamed from audioRef
+    audioRef: mediaRef, // ADDED: backward-compatible alias
     playingAudioId,
     currentTime,
     duration,
