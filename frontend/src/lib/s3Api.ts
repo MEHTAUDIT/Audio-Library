@@ -95,6 +95,69 @@ export interface ClearStagingResponse {
   message: string;
 }
 
+
+export interface MultipartInitiateRequest {
+  filename: string;
+  contentType: string;
+  fileSize: number;
+  partSize?: number;
+}
+
+export interface MultipartInitiateResponse {
+  uploadId: string;
+  s3Key: string;
+  partSize: number;
+  totalParts: number;
+  multipartThreshold: number;
+  partUrls: MultipartPartUrl[];
+}
+
+export interface MultipartPartUrl {
+  partNumber: number;
+  uploadUrl: string;
+  offset: number;
+  size: number;
+}
+
+export interface CompletedPart {
+  partNumber: number;
+  eTag: string;
+}
+
+export interface MultipartStatusResponse {
+  uploadId: string;
+  s3Key: string;
+  partSize: number;
+  totalParts: number;
+  uploadedParts: Array<{ partNumber: number; eTag: string; size: number }>;
+  remainingPartNumbers: number[];
+  remainingPartUrls: MultipartPartUrl[];
+}
+
+/** Tracks in-progress multipart upload for resume */
+export interface MultipartUploadState {
+  uploadId: string;
+  s3Key: string;
+  filename: string;
+  fileSize: number;
+  partSize: number;
+  totalParts: number;
+  completedParts: CompletedPart[];
+  startedAt: string;
+}
+
+export interface MultipartProgress {
+  filename: string;
+  s3Key: string;
+  totalBytes: number;
+  uploadedBytes: number;
+  percent: number;
+  partsCompleted: number;
+  partsTotal: number;
+  status: 'uploading' | 'completing' | 'completed' | 'failed' | 'resuming';
+  resumeState: MultipartUploadState;
+}
+
 // ============ Upload Progress Tracking ============
 
 export interface UploadProgress {
@@ -309,6 +372,28 @@ export const s3Api = {
     metadata: Omit<ConfirmUploadRequest, 's3Key' | 'filename'>,
     onProgress?: ProgressCallback
   ): Promise<void> => {
+    // ADDED: Route large files through multipart upload
+    const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB
+
+    if (file.size > MULTIPART_THRESHOLD) {
+      const result = await s3Api.multipartUpload(file, {
+        onProgress: (mp) => {
+          onProgress?.({
+            filename: file.name,
+            s3Key: mp.s3Key,
+            loaded: mp.uploadedBytes,
+            total: mp.totalBytes,
+            percent: mp.percent,
+            status: mp.status === 'completed' ? 'completed' : 'uploading',
+          });
+        },
+      });
+      // Confirm upload after multipart complete
+      await s3Api.confirmUpload({ s3Key: result.s3Key, filename: file.name, ...metadata });
+      return;
+    }
+
+    // Small files: existing single PUT flow
     // 1. Get pre-signed URL
     const presigned = await s3Api.getUploadUrl({
       filename: file.name,
@@ -342,7 +427,7 @@ export const s3Api = {
     const urlRequest: BatchUploadUrlRequest = {
       files: files.map(f => ({
         filename: f.file.name,
-        contentType: f.file.type || 'application/octet-stream', 
+        contentType: f.file.type || 'application/octet-stream',  
         fileSize: f.file.size,
       })),
     };
@@ -377,6 +462,9 @@ export const s3Api = {
     const uploadQueue = Array.from(uploadMap.entries());
     const results: { s3Key: string; success: boolean; error?: string }[] = [];
     
+    // ADDED: Multipart threshold — files above this size use chunked resumable upload
+    const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB
+
     const uploadWorker = async () => {
       while (uploadQueue.length > 0) {
         const entry = uploadQueue.shift();
@@ -385,13 +473,31 @@ export const s3Api = {
         const [s3Key, { file, presigned }] = entry;
         
         try {
-          await s3Api.uploadToS3(file, presigned, (progress) => {
-            progressMap.set(s3Key, progress);
-            if (onProgress) {
-              onProgress(new Map(progressMap));
-            }
-          });
-          results.push({ s3Key, success: true });
+          // ADDED: Route large files through multipart upload for resumability
+          if (file.size > MULTIPART_THRESHOLD) {
+            const multipartResult = await s3Api.multipartUpload(file, {
+              onProgress: (mp) => {
+                progressMap.set(s3Key, {
+                  filename: file.name,
+                  s3Key: mp.s3Key,
+                  loaded: mp.uploadedBytes,
+                  total: mp.totalBytes,
+                  percent: mp.percent,
+                  status: mp.status === 'completed' ? 'completed' : 'uploading',
+                });
+                if (onProgress) onProgress(new Map(progressMap));
+              },
+            });
+            // Use the multipart s3Key (may differ from presigned key)
+            results.push({ s3Key: multipartResult.s3Key, success: true });
+          } else {
+            // Small files: existing single PUT flow
+            await s3Api.uploadToS3(file, presigned, (progress) => {
+              progressMap.set(s3Key, progress);
+              if (onProgress) onProgress(new Map(progressMap));
+            });
+            results.push({ s3Key, success: true });
+          }
         } catch (error: any) {
           results.push({ s3Key, success: false, error: error.message });
           progressMap.set(s3Key, {
@@ -598,5 +704,223 @@ export const s3Api = {
       filesUploaded: successCount,
       errors,
     };
+  },
+
+  multipart: {
+    /** Initiate a multipart upload — returns uploadId + presigned part URLs */
+    initiate: async (request: MultipartInitiateRequest): Promise<MultipartInitiateResponse> => {
+      const response = await api.post<MultipartInitiateResponse>('/s3/multipart/initiate', request);
+      return response.data;
+    },
+
+    /** Upload a single part to its presigned URL — returns eTag from S3 response */
+    uploadPart: (url: string, chunk: Blob, onProgress?: (loaded: number, total: number) => void): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        if (onProgress) {
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) onProgress(e.loaded, e.total);
+          });
+        }
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const eTag = xhr.getResponseHeader('ETag') || '';
+            resolve(eTag.replace(/"/g, '')); // S3 returns eTag wrapped in quotes
+          } else {
+            reject(new Error(`Part upload failed: status ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Network error during part upload')));
+        xhr.addEventListener('timeout', () => reject(new Error('Part upload timed out')));
+
+        xhr.open('PUT', url);
+        xhr.send(chunk);
+      });
+    },
+
+    /** Get upload status for resume — returns which parts S3 already has */
+    getStatus: async (
+      s3Key: string, uploadId: string, partSize: number, fileSize: number
+    ): Promise<MultipartStatusResponse> => {
+      const response = await api.get<MultipartStatusResponse>('/s3/multipart/status', {
+        params: { s3Key, uploadId, partSize, fileSize },
+      });
+      return response.data;
+    },
+
+    /** Complete the multipart upload — S3 assembles parts into final object */
+    complete: async (s3Key: string, uploadId: string, parts: CompletedPart[]): Promise<void> => {
+      await api.post('/s3/multipart/complete', { s3Key, uploadId, parts });
+    },
+
+    /** Abort/cancel — deletes uploaded parts from S3 */
+    abort: async (s3Key: string, uploadId: string): Promise<void> => {
+      await api.delete('/s3/multipart/abort', { params: { s3Key, uploadId } });
+    },
+  },
+
+  /**
+   * ADDED: High-level multipart upload orchestrator.
+   * Splits file into chunks, uploads in parallel with retry, supports resume.
+   * After completion, caller should use confirmUpload() to create the audio record.
+   */
+  multipartUpload: async (
+    file: File,
+    options?: {
+      concurrency?: number;
+      partRetries?: number;
+      onProgress?: (progress: MultipartProgress) => void;
+      resumeState?: MultipartUploadState;
+    }
+  ): Promise<{ s3Key: string; uploadId: string }> => {
+    const concurrency = options?.concurrency ?? 3;
+    const partRetries = options?.partRetries ?? 3;
+
+    let uploadId: string;
+    let s3Key: string;
+    let partSize: number;
+    let totalParts: number;
+    let partUrls: MultipartPartUrl[];
+    const completedParts: CompletedPart[] = [];
+    let uploadedBytes = 0;
+
+    // Helper to report progress
+    const reportProgress = (status: MultipartProgress['status']) => {
+      options?.onProgress?.({
+        filename: file.name,
+        s3Key,
+        totalBytes: file.size,
+        uploadedBytes,
+        percent: Math.round((uploadedBytes / file.size) * 100),
+        partsCompleted: completedParts.length,
+        partsTotal: totalParts,
+        status,
+        resumeState: { uploadId, s3Key, filename: file.name, fileSize: file.size,
+          partSize, totalParts, completedParts: [...completedParts],
+          startedAt: new Date().toISOString() },
+      });
+    };
+
+    // RESUME: If we have a saved state, check what S3 already has
+    if (options?.resumeState) {
+      const rs = options.resumeState;
+      uploadId = rs.uploadId;
+      s3Key = rs.s3Key;
+      partSize = rs.partSize;
+      totalParts = rs.totalParts;
+
+      reportProgress('resuming');
+
+      const status = await s3Api.multipart.getStatus(s3Key, uploadId, partSize, file.size);
+
+      // Add already-uploaded parts
+      for (const p of status.uploadedParts) {
+        completedParts.push({ partNumber: p.partNumber, eTag: p.eTag });
+        uploadedBytes += p.size;
+      }
+
+      // Get URLs for remaining parts only
+      partUrls = status.remainingPartUrls;
+
+    } else {
+      // FRESH: Initiate new multipart upload
+      const initResponse = await s3Api.multipart.initiate({
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+      });
+
+      uploadId = initResponse.uploadId;
+      s3Key = initResponse.s3Key;
+      partSize = initResponse.partSize;
+      totalParts = initResponse.totalParts;
+      partUrls = initResponse.partUrls;
+    }
+
+    reportProgress('uploading');
+
+    // Upload remaining parts in parallel with retry
+    const partQueue = [...partUrls];
+    const errors: string[] = [];
+
+    const uploadWorker = async () => {
+      while (partQueue.length > 0) {
+        const part = partQueue.shift();
+        if (!part) break;
+
+        // Slice the file chunk for this part
+        const chunk = file.slice(part.offset, part.offset + part.size);
+
+        let lastError: Error | null = null;
+        for (let attempt = 1; attempt <= partRetries; attempt++) {
+          try {
+            const eTag = await s3Api.multipart.uploadPart(
+              part.uploadUrl,
+              chunk,
+              (loaded, total) => {
+                // Per-part progress — add to aggregate
+                const partUploaded = uploadedBytes +
+                  completedParts.filter(p => p.partNumber < part.partNumber).length * 0 + loaded;
+                options?.onProgress?.({
+                  filename: file.name,
+                  s3Key,
+                  totalBytes: file.size,
+                  uploadedBytes: Math.min(
+                    uploadedBytes + loaded,
+                    file.size
+                  ),
+                  percent: Math.round(((uploadedBytes + loaded) / file.size) * 100),
+                  partsCompleted: completedParts.length,
+                  partsTotal: totalParts,
+                  status: 'uploading',
+                  resumeState: { uploadId, s3Key, filename: file.name, fileSize: file.size,
+                    partSize, totalParts, completedParts: [...completedParts],
+                    startedAt: new Date().toISOString() },
+                });
+              }
+            );
+
+            completedParts.push({ partNumber: part.partNumber, eTag });
+            uploadedBytes += part.size;
+            reportProgress('uploading');
+            lastError = null;
+            break; // Success — exit retry loop
+          } catch (err: any) {
+            lastError = err;
+            if (attempt < partRetries) {
+              // Wait before retry (exponential backoff: 1s, 2s, 4s)
+              await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+            }
+          }
+        }
+
+        if (lastError) {
+          errors.push(`Part ${part.partNumber}: ${lastError.message}`);
+        }
+      }
+    };
+
+    // Start parallel workers
+    const workers = Array(Math.min(concurrency, partQueue.length))
+      .fill(null)
+      .map(() => uploadWorker());
+
+    await Promise.all(workers);
+
+    // Check for failures
+    if (errors.length > 0) {
+      reportProgress('failed');
+      throw new Error(`Multipart upload failed: ${errors.join('; ')}`);
+    }
+
+    // Complete the multipart upload
+    reportProgress('completing');
+    await s3Api.multipart.complete(s3Key, uploadId, completedParts);
+    reportProgress('completed');
+
+    return { s3Key, uploadId };
   },
 };

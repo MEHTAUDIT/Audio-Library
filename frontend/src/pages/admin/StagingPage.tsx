@@ -22,16 +22,23 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
 import { audioApi } from '../../lib/audioApi';
 import type { Audio, AudioUpdateRequest } from '../../types/audio';
-import { isVideo } from '../../types/audio';
+import { isVideo } from '../../types/audio'; 
+import { seriesApi } from '../../lib/seriesApi'; 
 import { api } from '../../lib/api';
 export function StagingPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<AudioUpdateRequest>({});
+
+  // Fetch all series for the dropdown
+  const { data: allSeries } = useQuery({
+    queryKey: ['series'],
+    queryFn: seriesApi.getAll,
+  });
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLMediaElement>(null); 
-
+  // for progress bar [audio]
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -91,6 +98,7 @@ export function StagingPage() {
       description: audio.description,
       speaker: audio.speaker,
       topic: audio.topic,
+      seriesId: audio.seriesId || undefined,  // ADDED
     });
   };
 
@@ -280,6 +288,24 @@ export function StagingPage() {
                             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none"
                           />
                         </div>
+                        {/* ADDED: Series dropdown */}
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">
+                            Series
+                          </label>
+                          <select
+                            value={editForm.seriesId || ''}
+                            onChange={(e) =>
+                              setEditForm({ ...editForm, seriesId: e.target.value || undefined })
+                            }
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
+                          >
+                            <option value="">No series</option>
+                            {allSeries?.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
                         <div className="flex justify-end gap-2">
                           <button
                             onClick={() => setEditingId(null)}
@@ -457,7 +483,7 @@ export function StagingPage() {
         </motion.div>
       )}
 
-      {/* : Use <video> element which handles both audio + video playback.
+      {/* CHANGED: Use <video> element which handles both audio + video playback.
           Visible with controls when playing a video file; hidden for audio files. */}
       {(() => {
         const playingItem = stagingAudio?.find(a => a.id === playingId);

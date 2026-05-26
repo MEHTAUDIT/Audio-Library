@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { isVideo } from '../../types/audio'; 
-import { useParams, useNavigate } from 'react-router-dom';
+import { isVideo } from '../../types/audio'; // ADDED: video detection
+import { useParams, useNavigate, Link } from 'react-router-dom'; // CHANGED: added Link
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
@@ -22,6 +22,7 @@ import {
   Bookmark,
   Gauge,
 } from 'lucide-react';
+import { ListMusic } from 'lucide-react'; // ADDED: for series card
 import { audioApi } from '../../lib/audioApi';
 import { userLibraryApi } from '../../lib/userLibraryApi';
 import { useAuth } from '../../lib/auth';
@@ -33,7 +34,7 @@ export function AudioDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
-  const audioRef = useRef<HTMLMediaElement>(null); 
+  const audioRef = useRef<HTMLMediaElement>(null); // CHANGED: HTMLMediaElement for video support
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -353,6 +354,27 @@ export function AudioDetailPage() {
 
               {audio.description && (
                 <p className="text-slate-600 leading-relaxed">{audio.description}</p>
+              )}
+
+              {/* ADDED: Series card with navigation */}
+              {audio.seriesId && audio.seriesName && (
+                <Link
+                  to={`/series/${audio.seriesId}`}
+                  className="flex items-center gap-3 p-3 bg-primary-50 border border-primary-100 rounded-xl hover:bg-primary-100 transition-colors"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                    <ListMusic className="w-5 h-5 text-primary-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-primary-900">Part of series</p>
+                    <p className="text-sm text-primary-700 truncate">{audio.seriesName}</p>
+                  </div>
+                  {audio.seriesOrder > 0 && (
+                    <span className="text-xs font-medium text-primary-600 bg-primary-100 px-2 py-0.5 rounded-full">
+                      #{audio.seriesOrder}
+                    </span>
+                  )}
+                </Link>
               )}
 
               {/* Action Buttons */}

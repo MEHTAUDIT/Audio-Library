@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;  
+import java.util.Map;   // ADDED: for 409 duplicate error response body in confirmUpload
 
 /**
  * Controller for S3 direct upload operations.
@@ -54,7 +54,7 @@ public class S3UploadController {
         PresignedUploadResponse response = s3StorageService.generateUploadUrl(
                 tenant.getId(),
                 request.getFilename(),
-                // Generic fallback instead of audio-specific (supports video uploads too)
+                // CHANGED: Generic fallback instead of audio-specific (supports video uploads too)
                 request.getContentType() != null ? request.getContentType() : "application/octet-stream"
         );
         
@@ -108,7 +108,7 @@ public class S3UploadController {
             return ResponseEntity.badRequest().build();
         }
         
-        // Compute file hash from S3 object for duplicate detection
+        // CHANGED: Compute file hash from S3 object for duplicate detection
         // (was: null passed to createDraftWithFile, skipping dedup entirely)
         String fileHash = s3StorageService.computeObjectHash(request.getS3Key());  // ADDED
         if (fileHash != null) {
@@ -124,10 +124,10 @@ public class S3UploadController {
         String title = request.getTitle() != null ? request.getTitle() : 
                 request.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
         
-        //  Detect media duration via ffprobe (downloads to temp file, probes, cleans up)
+        // ADDED: Detect media duration via ffprobe (downloads to temp file, probes, cleans up)
         long durationSeconds = s3StorageService.getMediaDuration(request.getS3Key(), metadata.getContentType());
         
-        //  Wrapped in try/catch and pass fileHash instead of null
+        // CHANGED: Wrapped in try/catch and pass fileHash instead of null
         try {
             audioService.createDraftWithFile(
                     title,
@@ -181,7 +181,7 @@ public class S3UploadController {
                     continue;
                 }
                 
-                //  Compute file hash from S3 object for duplicate detection
+                // CHANGED: Compute file hash from S3 object for duplicate detection
                 // (was: null passed to createDraftWithFile, skipping dedup entirely)
                 String fileHash = s3StorageService.computeObjectHash(file.getS3Key());  // ADDED
                 if (fileHash != null) {
@@ -259,6 +259,95 @@ public class S3UploadController {
                 .build();
         
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Initiate multipart upload",
+            description = "Start a multipart upload for a large file. Returns uploadId and presigned URLs for each part. " +
+                    "Client uploads parts in parallel, then calls /multipart/complete."
+    )
+    @PostMapping("/multipart/initiate")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<MultipartInitiateResponse> initiateMultipartUpload(
+            @RequestBody MultipartInitiateRequest request,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        Tenant tenant = resolveTenant(tenantSubdomain);
+        log.info("Initiating multipart upload: {} ({}B) for tenant: {}",
+                request.getFilename(), request.getFileSize(), tenant.getSubdomain());
+
+        MultipartInitiateResponse response = s3StorageService.initiateMultipartUpload(
+                tenant.getId(),
+                request.getFilename(),
+                request.getContentType() != null ? request.getContentType() : "application/octet-stream",
+                request.getFileSize(),
+                request.getPartSize()
+        );
+
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Get multipart upload status",
+            description = "Check which parts are already uploaded (for resume). Returns uploaded parts and " +
+                    "presigned URLs for remaining parts."
+    )
+    @GetMapping("/multipart/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<MultipartStatusResponse> getMultipartStatus(
+            @RequestParam String s3Key,
+            @RequestParam String uploadId,
+            @RequestParam long partSize,
+            @RequestParam long fileSize,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        resolveTenant(tenantSubdomain); // auth check
+        log.info("Checking multipart status: uploadId={}", uploadId);
+
+        MultipartStatusResponse response = s3StorageService.getMultipartStatus(
+                s3Key, uploadId, partSize, fileSize);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Complete multipart upload",
+            description = "After all parts are uploaded, call this to assemble them into the final S3 object. " +
+                    "Then call /confirm-upload to create the audio record."
+    )
+    @PostMapping("/multipart/complete")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<Void> completeMultipartUpload(
+            @RequestBody MultipartCompleteRequest request,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        resolveTenant(tenantSubdomain); // auth check
+        log.info("Completing multipart upload: uploadId={} s3Key={} parts={}",
+                request.getUploadId(), request.getS3Key(), request.getParts().size());
+
+        s3StorageService.completeMultipartUpload(
+                request.getS3Key(), request.getUploadId(), request.getParts());
+
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(
+            summary = "Abort multipart upload",
+            description = "Cancel an in-progress multipart upload. Deletes all uploaded parts from S3."
+    )
+    @DeleteMapping("/multipart/abort")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<Void> abortMultipartUpload(
+            @RequestParam String s3Key,
+            @RequestParam String uploadId,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        resolveTenant(tenantSubdomain); // auth check
+        log.info("Aborting multipart upload: uploadId={} s3Key={}", uploadId, s3Key);
+
+        s3StorageService.abortMultipartUpload(s3Key, uploadId);
+
+        return ResponseEntity.noContent().build();
     }
 
     // ==================== STAGING ENDPOINTS ====================
@@ -363,7 +452,7 @@ public class S3UploadController {
                     continue;
                 }
                 
-                // Compute file hash BEFORE moving from staging (while file is still at staging key)
+                // CHANGED: Compute file hash BEFORE moving from staging (while file is still at staging key)
                 // (was: no hash computed, null passed to createDraftWithFile)
                 String fileHash = s3StorageService.computeObjectHash(file.getStagingKey());  // ADDED
                 if (fileHash != null) {
@@ -379,7 +468,7 @@ public class S3UploadController {
                 // Get metadata from the permanent location
                 S3ObjectMetadata metadata = s3StorageService.getObjectMetadata(permanentKey);
                 
-                //  Detect media duration via ffprobe
+                // ADDED: Detect media duration via ffprobe
                 long durationSeconds = s3StorageService.getMediaDuration(permanentKey, metadata.getContentType());
                 
                 // Create audio record with hash for dedup

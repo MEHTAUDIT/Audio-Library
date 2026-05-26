@@ -27,8 +27,9 @@ import { api } from '../../lib/api';
 import { audioApi } from '../../lib/audioApi';
 import { useAuth } from '../../lib/auth';
 import { discoveryApi, userLibraryApi } from '../../lib/userLibraryApi';
+import { seriesApi } from '../../lib/seriesApi'; // ADDED
 import type { Audio } from '../../types/audio';
-import { isVideo } from '../../types/audio'; 
+import { isVideo } from '../../types/audio'; // ADDED: video detection
 
 const container = {
   hidden: { opacity: 0 },
@@ -235,6 +236,12 @@ export function LibraryPage() {
   const { data: topics = [] } = useQuery({
     queryKey: ['topics'],
     queryFn: discoveryApi.getTopics,
+  });
+
+  // Fetch published series for browse section
+  const { data: publishedSeries } = useQuery({
+    queryKey: ['publishedSeries'],
+    queryFn: seriesApi.getPublished,
   });
 
   const { data: history = [] } = useQuery({
@@ -499,6 +506,34 @@ export function LibraryPage() {
 
         {activeTab === 'browse' && (
           <>
+            {/* Series Section */}
+            {publishedSeries && publishedSeries.length > 0 && (
+              <section className="mb-10">
+                <div className="flex items-center gap-2 mb-4">
+                  <ListMusic className="w-5 h-5 text-primary-600" />
+                  <h2 className="text-xl font-bold text-slate-900">Series</h2>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {publishedSeries.slice(0, 8).map((series) => (
+                    <Link
+                      key={series.id}
+                      to={`/series/${series.id}`}
+                      className="bg-white border border-slate-100 rounded-xl p-4 hover:shadow-md hover:border-slate-200 transition-all"
+                    >
+                      <div className="w-full aspect-square rounded-lg bg-gradient-to-br from-primary-100 to-accent-100 flex items-center justify-center mb-3">
+                        <ListMusic className="w-10 h-10 text-primary-400" />
+                      </div>
+                      <h3 className="font-semibold text-slate-900 text-sm truncate">{series.name}</h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {series.audioCount} items
+                        {series.speakerName && ` · ${series.speakerName}`}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* Trending Section */}
             {trending.length > 0 && (
               <AudioSection

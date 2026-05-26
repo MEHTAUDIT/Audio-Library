@@ -63,7 +63,7 @@ const FIELD_OPTIONS: Array<{
     value: { type: 'map_to_field', field: 'series' },
     label: 'Series',
     icon: Library,
-    description: 'Maps to series/collection (stored in description)',
+    description: 'Creates or assigns to a series collection', // CHANGED: was "stored in description"
   },
   {
     value: { type: 'skip' },
@@ -377,4 +377,3 @@ function LevelMappingRow({ level, isLast, onMappingChange }: LevelMappingRowProp
 }
 
 export default FolderMappingConfig;
-

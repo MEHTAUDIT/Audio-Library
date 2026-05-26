@@ -13,6 +13,7 @@ import {
   Menu,
   X,
   Library,
+  ListMusic,  // icon for Series nav item
   ChevronRight,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
@@ -55,6 +56,12 @@ const navItems: NavItem[] = [
     label: 'Published',
     path: '/admin/published',
     description: 'Live audio visible to users',
+  },
+  {
+    icon: ListMusic,
+    label: 'Series',
+    path: '/admin/series',
+    description: 'Manage series and collections',
   },
   {
     icon: Archive,
@@ -329,4 +336,3 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     </TooltipProvider>
   );
 }
-

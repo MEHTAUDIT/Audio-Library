@@ -6,21 +6,29 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.core.ResponseInputStream;          
+// ┌──────────────────────────────────────────────────────────────────┐
+// │ CHANGED: Added imports for S3 object streaming and SHA-256      │
+// │ hashing to support duplicate detection on S3-uploaded files.    │
+// └──────────────────────────────────────────────────────────────────┘
+import software.amazon.awssdk.core.ResponseInputStream;          // ADDED
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignRequest;  // ADDED: multipart
 
-import java.io.IOException;                                       
-import java.security.DigestInputStream;                           
-import java.security.MessageDigest;                               
-import java.security.NoSuchAlgorithmException;                    
+import java.io.IOException;                                       // ADDED
+import java.security.DigestInputStream;                           // ADDED
+import java.security.MessageDigest;                               // ADDED
+import java.security.NoSuchAlgorithmException;                    // ADDED
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;  // ADDED
+import java.util.HashSet;  // ADDED
 import java.util.List;
+import java.util.Set;   // ADDED
 import java.util.UUID;
 
 /**
@@ -181,6 +189,21 @@ public class S3StorageService {
                 .build();
     }
 
+    // ┌──────────────────────────────────────────────────────────────────┐
+    // │ ADDED: New method — computeObjectHash                           │
+    // │                                                                  │
+    // │ BEFORE: No way to compute file hash from S3 objects.             │
+    // │ S3UploadController passed null as fileHash to                    │
+    // │ createDraftWithFile(), silently skipping duplicate detection     │
+    // │ for all S3 uploads (confirmUpload, confirmBatchUploads,         │
+    // │ processStagedFiles).                                             │
+    // │                                                                  │
+    // │ AFTER: Streams the S3 object through DigestInputStream in        │
+    // │ 8KB chunks (same pattern as AudioService.computeFileHash(Path)) │
+    // │ and returns SHA-256 hex string. Returns null on error so a      │
+    // │ transient S3 hiccup degrades to "no dedup" instead of failing   │
+    // │ the upload.                                                      │
+    // └──────────────────────────────────────────────────────────────────┘
     /**
      * Compute SHA-256 hash of an S3 object by streaming its content.
      * Streams in 8KB chunks — does NOT load the entire file into memory.
@@ -228,6 +251,13 @@ public class S3StorageService {
         }
     }
 
+    // ┌──────────────────────────────────────────────────────────────────┐
+    // │ ADDED: getMediaDuration — detect video/audio duration from S3   │
+    // │                                                                  │
+    // │ Downloads the S3 object to a temp file, runs ffprobe to extract │
+    // │ duration, then deletes the temp file. Returns 0 if ffprobe is   │
+    // │ not installed or the file format is unsupported.                 │
+    // └──────────────────────────────────────────────────────────────────┘
     /**
      * Detect media duration for an S3 object using ffprobe.
      * Downloads to a temp file, probes it, then cleans up.
@@ -317,6 +347,251 @@ public class S3StorageService {
                 } catch (java.io.IOException ignored) {}
             }
         }
+    }
+
+    // ┌──────────────────────────────────────────────────────────────────┐
+    // │ ADDED: Multipart upload methods for resumable large file uploads │
+    // │                                                                  │
+    // │ Flow: initiate → upload parts (parallel) → complete              │
+    // │ Resume: getMultipartStatus → upload missing parts → complete     │
+    // │ Cancel: abortMultipartUpload                                     │
+    // └──────────────────────────────────────────────────────────────────┘
+
+    /**
+     * Initiate a multipart upload and generate presigned URLs for all parts.
+     */
+    public MultipartInitiateResponse initiateMultipartUpload(
+            UUID tenantId, String filename, String contentType, long fileSize, Long customPartSize) {
+
+        log.info("Initiating multipart upload: tenant={} filename='{}' size={} contentType={}",
+                tenantId, filename, fileSize, contentType);
+
+        // Generate S3 key
+        String extension = "";
+        if (filename != null && filename.contains(".")) {
+            extension = filename.substring(filename.lastIndexOf("."));
+        }
+        String uniqueFilename = UUID.randomUUID().toString() + extension;
+        String s3Key = s3Properties.getPrefix() + tenantId.toString() + "/" + uniqueFilename;
+
+        // Determine part size
+        long partSize = customPartSize != null ? customPartSize : s3Properties.getMultipartPartSize();
+        partSize = Math.max(partSize, 5L * 1024 * 1024); // S3 minimum: 5MB per part
+
+        // Calculate number of parts
+        int totalParts = (int) Math.ceil((double) fileSize / partSize);
+
+        // Create the multipart upload in S3
+        CreateMultipartUploadRequest createRequest = CreateMultipartUploadRequest.builder()
+                .bucket(s3Properties.getBucket())
+                .key(s3Key)
+                .contentType(contentType)
+                .build();
+
+        CreateMultipartUploadResponse createResponse = s3Client.createMultipartUpload(createRequest);
+        String uploadId = createResponse.uploadId();
+
+        log.info("Multipart upload initiated: uploadId={} s3Key={} totalParts={} partSize={}",
+                uploadId, s3Key, totalParts, partSize);
+
+        // Generate presigned URLs for all parts
+        List<MultipartPartUrl> partUrls = generatePartUrls(s3Key, uploadId, totalParts, partSize, fileSize);
+
+        return MultipartInitiateResponse.builder()
+                .uploadId(uploadId)
+                .s3Key(s3Key)
+                .partSize(partSize)
+                .totalParts(totalParts)
+                .multipartThreshold(s3Properties.getMultipartThreshold())
+                .partUrls(partUrls)
+                .build();
+    }
+
+    /**
+     * Generate presigned URLs for specific part numbers (used for resume — only missing parts).
+     */
+    public List<MultipartPartUrl> generatePartUrls(
+            String s3Key, String uploadId, int totalParts, long partSize, long fileSize) {
+
+        List<MultipartPartUrl> urls = new ArrayList<>();
+
+        for (int i = 1; i <= totalParts; i++) {
+            long offset = (long) (i - 1) * partSize;
+            long size = Math.min(partSize, fileSize - offset);
+
+            UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
+                    .bucket(s3Properties.getBucket())
+                    .key(s3Key)
+                    .uploadId(uploadId)
+                    .partNumber(i)
+                    .build();
+
+            UploadPartPresignRequest presignRequest = UploadPartPresignRequest.builder()
+                    .signatureDuration(Duration.ofMinutes(s3Properties.getUploadUrlExpirationMinutes()))
+                    .uploadPartRequest(uploadPartRequest)
+                    .build();
+
+            var presignedRequest = s3Presigner.presignUploadPart(presignRequest);
+
+            urls.add(MultipartPartUrl.builder()
+                    .partNumber(i)
+                    .uploadUrl(presignedRequest.url().toString())
+                    .offset(offset)
+                    .size(size)
+                    .build());
+        }
+
+        return urls;
+    }
+
+    /**
+     * Generate presigned URLs for only specific part numbers (resume case).
+     */
+    public List<MultipartPartUrl> generatePartUrlsForParts(
+            String s3Key, String uploadId, List<Integer> partNumbers, long partSize, long fileSize) {
+
+        List<MultipartPartUrl> urls = new ArrayList<>();
+
+        for (int partNumber : partNumbers) {
+            long offset = (long) (partNumber - 1) * partSize;
+            long size = Math.min(partSize, fileSize - offset);
+
+            UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
+                    .bucket(s3Properties.getBucket())
+                    .key(s3Key)
+                    .uploadId(uploadId)
+                    .partNumber(partNumber)
+                    .build();
+
+            UploadPartPresignRequest presignRequest = UploadPartPresignRequest.builder()
+                    .signatureDuration(Duration.ofMinutes(s3Properties.getUploadUrlExpirationMinutes()))
+                    .uploadPartRequest(uploadPartRequest)
+                    .build();
+
+            var presignedRequest = s3Presigner.presignUploadPart(presignRequest);
+
+            urls.add(MultipartPartUrl.builder()
+                    .partNumber(partNumber)
+                    .uploadUrl(presignedRequest.url().toString())
+                    .offset(offset)
+                    .size(size)
+                    .build());
+        }
+
+        return urls;
+    }
+
+    /**
+     * Complete a multipart upload — S3 assembles all parts into the final object.
+     */
+    public void completeMultipartUpload(String s3Key, String uploadId, List<CompletedPartInfo> parts) {
+        log.info("Completing multipart upload: uploadId={} s3Key={} parts={}", uploadId, s3Key, parts.size());
+
+        List<CompletedPart> s3Parts = parts.stream()
+                .map(p -> CompletedPart.builder()
+                        .partNumber(p.getPartNumber())
+                        .eTag(p.getETag())
+                        .build())
+                .sorted(Comparator.comparingInt(CompletedPart::partNumber))
+                .toList();
+
+        CompletedMultipartUpload completedUpload = CompletedMultipartUpload.builder()
+                .parts(s3Parts)
+                .build();
+
+        CompleteMultipartUploadRequest completeRequest = CompleteMultipartUploadRequest.builder()
+                .bucket(s3Properties.getBucket())
+                .key(s3Key)
+                .uploadId(uploadId)
+                .multipartUpload(completedUpload)
+                .build();
+
+        s3Client.completeMultipartUpload(completeRequest);
+        log.info("Multipart upload completed: uploadId={} s3Key={}", uploadId, s3Key);
+    }
+
+    /**
+     * Abort a multipart upload — deletes all uploaded parts from S3.
+     */
+    public void abortMultipartUpload(String s3Key, String uploadId) {
+        log.info("Aborting multipart upload: uploadId={} s3Key={}", uploadId, s3Key);
+
+        AbortMultipartUploadRequest abortRequest = AbortMultipartUploadRequest.builder()
+                .bucket(s3Properties.getBucket())
+                .key(s3Key)
+                .uploadId(uploadId)
+                .build();
+
+        s3Client.abortMultipartUpload(abortRequest);
+        log.info("Multipart upload aborted: uploadId={} s3Key={}", uploadId, s3Key);
+    }
+
+    /**
+     * Get multipart upload status — lists parts already in S3 for resume.
+     * Returns which parts are done and presigned URLs for the remaining parts.
+     */
+    public MultipartStatusResponse getMultipartStatus(
+            String s3Key, String uploadId, long partSize, long fileSize) {
+
+        log.info("Checking multipart status: uploadId={} s3Key={}", uploadId, s3Key);
+
+        int totalParts = (int) Math.ceil((double) fileSize / partSize);
+
+        // List parts already uploaded to S3
+        ListPartsRequest listRequest = ListPartsRequest.builder()
+                .bucket(s3Properties.getBucket())
+                .key(s3Key)
+                .uploadId(uploadId)
+                .build();
+
+        List<UploadedPartInfo> uploadedParts = new ArrayList<>();
+        Set<Integer> uploadedPartNumbers = new HashSet<>();
+
+        ListPartsResponse listResponse;
+        do {
+            listResponse = s3Client.listParts(listRequest);
+
+            for (Part part : listResponse.parts()) {
+                uploadedParts.add(UploadedPartInfo.builder()
+                        .partNumber(part.partNumber())
+                        .eTag(part.eTag())
+                        .size(part.size())
+                        .build());
+                uploadedPartNumbers.add(part.partNumber());
+            }
+
+            // Handle pagination
+            listRequest = listRequest.toBuilder()
+                    .partNumberMarker(listResponse.nextPartNumberMarker())
+                    .build();
+
+        } while (listResponse.isTruncated());
+
+        // Calculate remaining parts
+        List<Integer> remaining = new ArrayList<>();
+        for (int i = 1; i <= totalParts; i++) {
+            if (!uploadedPartNumbers.contains(i)) {
+                remaining.add(i);
+            }
+        }
+
+        // Generate presigned URLs for remaining parts only
+        List<MultipartPartUrl> remainingUrls = remaining.isEmpty()
+                ? List.of()
+                : generatePartUrlsForParts(s3Key, uploadId, remaining, partSize, fileSize);
+
+        log.info("Multipart status: uploadId={} uploaded={}/{} remaining={}",
+                uploadId, uploadedParts.size(), totalParts, remaining.size());
+
+        return MultipartStatusResponse.builder()
+                .uploadId(uploadId)
+                .s3Key(s3Key)
+                .partSize(partSize)
+                .totalParts(totalParts)
+                .uploadedParts(uploadedParts)
+                .remainingPartNumbers(remaining)
+                .remainingPartUrls(remainingUrls)
+                .build();
     }
 
     /**
