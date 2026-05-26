@@ -86,10 +86,36 @@ public class Audio extends BaseEntity {
     @OneToMany(mappedBy = "audio", fetch = FetchType.LAZY)
     private List<AudioTagJoin> audioTags = new ArrayList<>();
 
+    public enum MediaType {
+        AUDIO,
+        VIDEO
+    }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "media_type")
+    private MediaType mediaType = MediaType.AUDIO;
+
+    @Column(name = "series_id")
+    private UUID seriesId;
+
+    @Column(name = "series_order")
+    private Integer seriesOrder = 0;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "series_id", insertable = false, updatable = false)
+    private Series series;
+
     public enum Status {
         DRAFT,
         PUBLISHED,
         ARCHIVED
+    }
+
+    /**
+     * Check if this is a video file.
+     */
+    public boolean isVideo() {
+        return mediaType == MediaType.VIDEO;
     }
 
     /**

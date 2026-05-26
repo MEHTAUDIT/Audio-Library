@@ -15,5 +15,6 @@ public class AudioUpdateRequest {
     private List<UUID> genreIds;
     private List<UUID> tagIds;
     private List<UUID> speakerIds;
+    private UUID seriesId;
+    private Integer seriesOrder;
 }
-
