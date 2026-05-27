@@ -122,7 +122,7 @@ export function SeriesListPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition-shadow cursor-pointer group"
-              onClick={() => navigate(`/series/${series.id}`)}
+              onClick={() => navigate(`/admin/series/${series.id}`)}
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary-100 to-accent-100 flex items-center justify-center">

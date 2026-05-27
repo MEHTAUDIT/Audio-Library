@@ -10,7 +10,8 @@ import { DashboardPage } from './pages/admin/DashboardPage';
 import { ProcessUploadPage } from './pages/admin/ProcessUploadPage';
 import { PublishedPage } from './pages/admin/PublishedPage';
 import { StagingPage } from './pages/admin/StagingPage';
-import { SeriesListPage } from './pages/admin/SeriesListPage';   
+import { SeriesListPage } from './pages/admin/SeriesListPage';
+import { SeriesManagePage } from './pages/admin/SeriesManagePage';
 import { SeriesDetailPage } from './pages/library/SeriesDetailPage'; 
 import { UploadPage } from './pages/admin/UploadPage';
 import { LoginPage } from './pages/auth/LoginPage';
@@ -124,6 +125,14 @@ function AppRoutes() {
         element={
           <AdminRoute>
             <SeriesListPage />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/admin/series/:id"
+        element={
+          <AdminRoute>
+            <SeriesManagePage />
           </AdminRoute>
         }
       />
