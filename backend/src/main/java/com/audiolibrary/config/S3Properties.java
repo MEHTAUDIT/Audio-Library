@@ -67,5 +67,16 @@ public class S3Properties {
      * Maximum file size allowed for upload (in bytes). Default 2GB.
      */
     private long maxFileSize = 2L * 1024 * 1024 * 1024;
-}
 
+    /**
+     * Part size for multipart uploads in bytes. Default 10MB.
+     * Minimum 5MB per S3 spec. Maximum 5GB per part.
+     */
+    private long multipartPartSize = 10L * 1024 * 1024;
+
+    /**
+     * File size threshold (bytes) above which multipart upload is used.
+     * Files below this use single PUT. Default 100MB.
+     */
+    private long multipartThreshold = 100L * 1024 * 1024;
+}

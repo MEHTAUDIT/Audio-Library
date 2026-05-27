@@ -27,7 +27,9 @@ import { api } from '../../lib/api';
 import { audioApi } from '../../lib/audioApi';
 import { useAuth } from '../../lib/auth';
 import { discoveryApi, userLibraryApi } from '../../lib/userLibraryApi';
+import { seriesApi } from '../../lib/seriesApi'; // ADDED
 import type { Audio } from '../../types/audio';
+import { isVideo } from '../../types/audio'; // ADDED: video detection
 
 const container = {
   hidden: { opacity: 0 },
@@ -204,7 +206,7 @@ export function LibraryPage() {
   const [duration, setDuration] = useState(0);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'browse' | 'favorites' | 'queue' | 'history'>('browse');
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioRef = useRef<HTMLMediaElement>(null); // CHANGED: HTMLMediaElement for video support
 
   // Queries
   // Fetch a complete published list once to populate dropdown options
@@ -234,6 +236,12 @@ export function LibraryPage() {
   const { data: topics = [] } = useQuery({
     queryKey: ['topics'],
     queryFn: discoveryApi.getTopics,
+  });
+
+  // Fetch published series for browse section
+  const { data: publishedSeries } = useQuery({
+    queryKey: ['publishedSeries'],
+    queryFn: seriesApi.getPublished,
   });
 
   const { data: history = [] } = useQuery({
@@ -498,6 +506,34 @@ export function LibraryPage() {
 
         {activeTab === 'browse' && (
           <>
+            {/* Series Section */}
+            {publishedSeries && publishedSeries.length > 0 && (
+              <section className="mb-10">
+                <div className="flex items-center gap-2 mb-4">
+                  <ListMusic className="w-5 h-5 text-primary-600" />
+                  <h2 className="text-xl font-bold text-slate-900">Series</h2>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {publishedSeries.slice(0, 8).map((series) => (
+                    <Link
+                      key={series.id}
+                      to={`/series/${series.id}`}
+                      className="bg-white border border-slate-100 rounded-xl p-4 hover:shadow-md hover:border-slate-200 transition-all"
+                    >
+                      <div className="w-full aspect-square rounded-lg bg-gradient-to-br from-primary-100 to-accent-100 flex items-center justify-center mb-3">
+                        <ListMusic className="w-10 h-10 text-primary-400" />
+                      </div>
+                      <h3 className="font-semibold text-slate-900 text-sm truncate">{series.name}</h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {series.audioCount} items
+                        {series.speakerName && ` · ${series.speakerName}`}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* Trending Section */}
             {trending.length > 0 && (
               <AudioSection
@@ -719,8 +755,41 @@ export function LibraryPage() {
         )}
       </main>
 
-      {/* Hidden Audio Element */}
-      <audio ref={audioRef} className="hidden" />
+      {/* CHANGED: Floating video player — visible above Now Playing Bar when playing video.
+          For audio files, the <video> element stays hidden (it still plays audio fine).
+          For video files, a fixed overlay appears with native browser controls. */}
+      {(() => {
+        const playingItem = publishedAudioAll?.find((a: Audio) => a.id === playingId);
+        const showVideo = playingItem && isVideo(playingItem);
+        return (
+          <>
+            <video
+              ref={audioRef as React.RefObject<HTMLVideoElement>}
+              className="hidden"
+            />
+            {showVideo && (
+              <div className="fixed bottom-24 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900">
+                  <span className="text-white text-xs font-medium truncate max-w-[200px]">
+                    {playingItem?.title}
+                  </span>
+                  <button
+                    onClick={() => { audioRef.current?.pause(); setPlayingId(null); }}
+                    className="text-white/60 hover:text-white ml-2 text-lg leading-none"
+                  >×</button>
+                </div>
+                <video
+                  src={audioRef.current?.src}
+                  className="w-80 max-h-48"
+                  controls
+                  autoPlay
+                  onEnded={() => setPlayingId(null)}
+                />
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Now Playing Bar */}
       <AnimatePresence>

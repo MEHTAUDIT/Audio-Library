@@ -89,7 +89,7 @@ public class AudioService {
             String mimeType,
             long durationSeconds,
             UUID tenantId,
-            String fileHash) { 
+            String fileHash) {
 
         if (fileHash != null) {
             Optional<Audio> existing = audioRepository.findByFileHashAndDeletedAtIsNull(fileHash);
@@ -117,15 +117,21 @@ public class AudioService {
         audio.setStatus(Audio.Status.DRAFT);
         audio.setStorageKey(storageKey);
         audio.setOriginalFilename(originalFilename);
-        audio.setFileHash(fileHash);   // ← ADDED: store hash for future duplicate checks
+        audio.setFileHash(fileHash);
+
+        if (mimeType != null && mimeType.startsWith("video/")) {
+            audio.setMediaType(Audio.MediaType.VIDEO);
+        } else {
+            audio.setMediaType(Audio.MediaType.AUDIO);
+        }
 
         // Set the streaming URL
         Audio saved = audioRepository.save(audio);
         saved.setUrl("/api/v1/audio/" + saved.getId() + "/stream");
         saved = audioRepository.save(saved);
-        
+
         log.info("Created draft audio with file: {} for tenant: {}", saved.getId(), tenantId);
-        
+
         return AudioResponse.fromEntity(saved);
     }
 
@@ -260,7 +266,7 @@ public class AudioService {
     public AudioResponse updateAudio(UUID id, AudioUpdateRequest request) {
         Audio audio = audioRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Audio not found: " + id));
-        
+
         if (request.getTitle() != null) {
             audio.setTitle(request.getTitle());
         }
@@ -276,10 +282,17 @@ public class AudioService {
         if (request.getLanguage() != null) {
             audio.setLanguage(request.getLanguage());
         }
-        
+        // Series assignment
+        if (request.getSeriesId() != null) {
+            audio.setSeriesId(request.getSeriesId());
+        }
+        if (request.getSeriesOrder() != null) {
+            audio.setSeriesOrder(request.getSeriesOrder());
+        }
+
         Audio saved = audioRepository.save(audio);
         log.info("Updated audio: {}", saved.getId());
-        
+
         return AudioResponse.fromEntity(saved);
     }
 
@@ -290,17 +303,17 @@ public class AudioService {
     public AudioResponse publishAudio(UUID id) {
         Audio audio = audioRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Audio not found: " + id));
-        
+
         if (audio.getStatus() == Audio.Status.PUBLISHED) {
             throw new RuntimeException("Audio is already published");
         }
-        
+
         audio.setStatus(Audio.Status.PUBLISHED);
         audio.setPublishedAt(LocalDateTime.now());
-        
+
         Audio saved = audioRepository.save(audio);
         log.info("Published audio: {}", saved.getId());
-        
+
         return AudioResponse.fromEntity(saved);
     }
 
@@ -311,13 +324,13 @@ public class AudioService {
     public AudioResponse unpublishAudio(UUID id) {
         Audio audio = audioRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Audio not found: " + id));
-        
+
         audio.setStatus(Audio.Status.DRAFT);
         audio.setPublishedAt(null);
-        
+
         Audio saved = audioRepository.save(audio);
         log.info("Unpublished audio: {}", saved.getId());
-        
+
         return AudioResponse.fromEntity(saved);
     }
 
@@ -328,12 +341,12 @@ public class AudioService {
     public AudioResponse archiveAudio(UUID id) {
         Audio audio = audioRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Audio not found: " + id));
-        
+
         audio.setStatus(Audio.Status.ARCHIVED);
-        
+
         Audio saved = audioRepository.save(audio);
         log.info("Archived audio: {}", saved.getId());
-        
+
         return AudioResponse.fromEntity(saved);
     }
 
@@ -344,7 +357,7 @@ public class AudioService {
     public void deleteAudio(UUID id) {
         Audio audio = audioRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Audio not found: " + id));
-        
+
         audio.softDelete();
         audioRepository.save(audio);
         log.info("Soft deleted audio: {}", id);
@@ -358,7 +371,7 @@ public class AudioService {
         long published = audioRepository.countByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED);
         long archived = audioRepository.countByStatusAndDeletedAtIsNull(Audio.Status.ARCHIVED);
         long total = audioRepository.countByDeletedAtIsNull();
-        
+
         return AudioStats.builder()
                 .draftCount(draft)
                 .publishedCount(published)
@@ -505,7 +518,7 @@ public class AudioService {
      *Generic bulk action executor. Processes each audio independently.
      */
     private BulkActionResult executeBulkAction(List<UUID> audioIds, String action,
-                                                java.util.function.Function<Audio, String> processor) {
+                                               java.util.function.Function<Audio, String> processor) {
         List<BulkActionResult.ItemResult> results = new ArrayList<>();
         int successCount = 0;
         int failedCount = 0;

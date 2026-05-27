@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { isVideo } from '../../types/audio'; // ADDED: video detection
+import { useParams, useNavigate, Link } from 'react-router-dom'; // CHANGED: added Link
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
@@ -21,6 +22,7 @@ import {
   Bookmark,
   Gauge,
 } from 'lucide-react';
+import { ListMusic } from 'lucide-react'; // ADDED: for series card
 import { audioApi } from '../../lib/audioApi';
 import { userLibraryApi } from '../../lib/userLibraryApi';
 import { useAuth } from '../../lib/auth';
@@ -32,7 +34,7 @@ export function AudioDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioRef = useRef<HTMLMediaElement>(null); // CHANGED: HTMLMediaElement for video support
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -283,11 +285,13 @@ export function AudioDetailPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
-      {/* Hidden Audio Element */}
-      <audio
-        ref={audioRef}
-        preload="metadata"
-      />
+      {/* Hidden audio element for audio files */}
+      {!(audio && isVideo(audio)) && (
+        <audio
+          ref={audioRef as React.RefObject<HTMLAudioElement>}
+          preload="metadata"
+        />
+      )}
 
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-200 shadow-sm">
@@ -309,12 +313,23 @@ export function AudioDetailPage() {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-8"
         >
-          {/* Audio Info */}
+          {/* Audio/Video Info */}
           <div className="flex flex-col md:flex-row gap-8">
-            {/* Cover Art */}
-            <div className="w-full md:w-72 aspect-square rounded-2xl bg-gradient-to-br from-accent-600 to-primary-700 flex items-center justify-center shadow-2xl shadow-accent-500/20">
-              <Play className="w-24 h-24 text-white/30" />
-            </div>
+            {/* CHANGED: Video player replaces cover art for video files */}
+            {audio && isVideo(audio) ? (
+              <div className="w-full md:w-96">
+                <video
+                  ref={audioRef as React.RefObject<HTMLVideoElement>}
+                  className="w-full rounded-2xl shadow-2xl"
+                  controls
+                  preload="metadata"
+                />
+              </div>
+            ) : (
+              <div className="w-full md:w-72 aspect-square rounded-2xl bg-gradient-to-br from-accent-600 to-primary-700 flex items-center justify-center shadow-2xl shadow-accent-500/20">
+                <Play className="w-24 h-24 text-white/30" />
+              </div>
+            )}
 
             {/* Info */}
             <div className="flex-1 space-y-4">
@@ -351,6 +366,27 @@ export function AudioDetailPage() {
 
               {audio.description && (
                 <p className="text-slate-600 leading-relaxed">{audio.description}</p>
+              )}
+
+              {/* ADDED: Series card with navigation */}
+              {audio.seriesId && audio.seriesName && (
+                <Link
+                  to={`/series/${audio.seriesId}`}
+                  className="flex items-center gap-3 p-3 bg-primary-50 border border-primary-100 rounded-xl hover:bg-primary-100 transition-colors"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
+                    <ListMusic className="w-5 h-5 text-primary-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-primary-900">Part of series</p>
+                    <p className="text-sm text-primary-700 truncate">{audio.seriesName}</p>
+                  </div>
+                  {audio.seriesOrder > 0 && (
+                    <span className="text-xs font-medium text-primary-600 bg-primary-100 px-2 py-0.5 rounded-full">
+                      #{audio.seriesOrder}
+                    </span>
+                  )}
+                </Link>
               )}
 
               {/* Action Buttons */}
@@ -506,4 +542,3 @@ export function AudioDetailPage() {
     </div>
   );
 }
-

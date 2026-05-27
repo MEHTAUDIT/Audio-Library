@@ -10,6 +10,9 @@ import { DashboardPage } from './pages/admin/DashboardPage';
 import { ProcessUploadPage } from './pages/admin/ProcessUploadPage';
 import { PublishedPage } from './pages/admin/PublishedPage';
 import { StagingPage } from './pages/admin/StagingPage';
+import { SeriesListPage } from './pages/admin/SeriesListPage';
+import { SeriesManagePage } from './pages/admin/SeriesManagePage';
+import { SeriesDetailPage } from './pages/library/SeriesDetailPage';
 import { UploadPage } from './pages/admin/UploadPage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/Registerpage';
@@ -54,8 +57,9 @@ function AppRoutes() {
           </PrivateRoute>
         }
       />
-      <Route path="/library/:id" element={<AudioDetailPage />} />
-      <Route path="/speaker/:speakerId" element={<SpeakerProfilePage />} />
+        <Route path="/speaker/:speakerId" element={<SpeakerProfilePage />} />
+        <Route path="/library/:id" element={<AudioDetailPage />} />
+      <Route path="/series/:id" element={<SeriesDetailPage />} />  {/* ADDED */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/signup" element={<Navigate to="/register" replace />} />
@@ -114,6 +118,23 @@ function AppRoutes() {
         element={
           <AdminRoute>
             <ArchivedPage />
+          </AdminRoute>
+        }
+      />
+      {/* Series management */}
+      <Route
+        path="/admin/series"
+        element={
+          <AdminRoute>
+            <SeriesListPage />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/admin/series/:id"
+        element={
+          <AdminRoute>
+            <SeriesManagePage />
           </AdminRoute>
         }
       />

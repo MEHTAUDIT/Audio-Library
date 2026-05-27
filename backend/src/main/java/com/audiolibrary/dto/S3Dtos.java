@@ -268,5 +268,103 @@ public class S3Dtos {
         private int deletedCount;
         private String message;
     }
-}
 
+    /**
+     * Request to initiate a multipart upload.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MultipartInitiateRequest {
+        private String filename;
+        private String contentType;
+        private long fileSize;
+        private Long partSize;  // Optional custom part size (default from config)
+    }
+
+    /**
+     * Response with uploadId and presigned URLs for each part.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MultipartInitiateResponse {
+        private String uploadId;
+        private String s3Key;
+        private long partSize;
+        private int totalParts;
+        private long multipartThreshold;  // So frontend knows the threshold
+        private List<MultipartPartUrl> partUrls;
+    }
+
+    /**
+     * Presigned URL for a single part upload.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MultipartPartUrl {
+        private int partNumber;   // 1-based (S3 requirement)
+        private String uploadUrl; // Presigned PUT URL for this part
+        private long offset;      // Byte offset in the original file
+        private long size;        // Size of this part in bytes
+    }
+
+    /**
+     * Request to complete a multipart upload after all parts uploaded.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MultipartCompleteRequest {
+        private String s3Key;
+        private String uploadId;
+        private List<CompletedPartInfo> parts;
+    }
+
+    /**
+     * A completed part — partNumber + eTag returned by S3 after each PUT.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CompletedPartInfo {
+        private int partNumber;
+        private String eTag;
+    }
+
+    /**
+     * Status response for resume — shows which parts S3 already has.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MultipartStatusResponse {
+        private String uploadId;
+        private String s3Key;
+        private long partSize;
+        private int totalParts;
+        private List<UploadedPartInfo> uploadedParts;
+        private List<Integer> remainingPartNumbers;
+        private List<MultipartPartUrl> remainingPartUrls;  // Presigned URLs for missing parts
+    }
+
+    /**
+     * Info about a part already uploaded to S3.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class UploadedPartInfo {
+        private int partNumber;
+        private String eTag;
+        private long size;
+    }
+}

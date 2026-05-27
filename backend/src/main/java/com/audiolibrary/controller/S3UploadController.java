@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;   // ADDED: for 409 duplicate error response body in confirmUpload
 
 /**
  * Controller for S3 direct upload operations.
@@ -53,7 +54,8 @@ public class S3UploadController {
         PresignedUploadResponse response = s3StorageService.generateUploadUrl(
                 tenant.getId(),
                 request.getFilename(),
-                request.getContentType() != null ? request.getContentType() : "audio/mpeg"
+                // CHANGED: Generic fallback instead of audio-specific (supports video uploads too)
+                request.getContentType() != null ? request.getContentType() : "application/octet-stream"
         );
         
         return ResponseEntity.ok(response);
@@ -87,11 +89,12 @@ public class S3UploadController {
 
     @Operation(
             summary = "Confirm upload and create audio record",
-            description = "After uploading to S3, call this to confirm and create the audio record in the database."
+            description = "After uploading to S3, call this to confirm and create the audio record in the database. " +
+                    "Computes a SHA-256 hash of the S3 object for duplicate detection."
     )
     @PostMapping("/confirm-upload")
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
-    public ResponseEntity<Void> confirmUpload(
+    public ResponseEntity<?> confirmUpload(
             @RequestBody ConfirmUploadRequest request,
             @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
         
@@ -104,26 +107,49 @@ public class S3UploadController {
             return ResponseEntity.badRequest().build();
         }
         
+        // CHANGED: Compute file hash from S3 object for duplicate detection
+        // (was: null passed to createDraftWithFile, skipping dedup entirely)
+        String fileHash = s3StorageService.computeObjectHash(request.getS3Key());  // ADDED
+        if (fileHash != null) {
+            log.debug("Computed hash for S3 object {}: {}", request.getS3Key(), fileHash);
+        } else {
+            log.warn("Could not compute hash for S3 object {} — duplicate detection skipped", request.getS3Key());
+        }
+        
         // Get file metadata from S3
         S3ObjectMetadata metadata = s3StorageService.getObjectMetadata(request.getS3Key());
         
-        // Create audio record
+        // Create audio record with hash for dedup
         String title = request.getTitle() != null ? request.getTitle() : 
                 request.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
         
-        audioService.createDraftWithFile(
-                title,
-                request.getDescription(),
-                request.getSpeaker(),
-                request.getTopic(),
-                request.getS3Key(),  // Storage key is now the S3 key
-                request.getFilename(),
-                metadata.getSize(),
-                metadata.getContentType(),
-                0L,  // Duration will be calculated separately if needed
-                tenant.getId(),
-                null
-        );
+        // ADDED: Detect media duration via ffprobe (downloads to temp file, probes, cleans up)
+        long durationSeconds = s3StorageService.getMediaDuration(request.getS3Key(), metadata.getContentType());
+        
+        // CHANGED: Wrapped in try/catch and pass fileHash instead of null
+        try {
+            audioService.createDraftWithFile(
+                    title,
+                    request.getDescription(),
+                    request.getSpeaker(),
+                    request.getTopic(),
+                    request.getS3Key(),
+                    request.getFilename(),
+                    metadata.getSize(),
+                    metadata.getContentType(),
+                    durationSeconds,          // CHANGED: was 0L
+                    tenant.getId(),
+                    fileHash             // CHANGED: was null
+            );
+        } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
+            log.warn("Duplicate S3 upload rejected: {}", e.getMessage());
+            return ResponseEntity.status(409).body(Map.of(
+                    "error", "DUPLICATE_FILE",
+                    "message", e.getMessage(),
+                    "existingAudioId", e.getExistingAudioId().toString(),
+                    "existingTitle", e.getExistingTitle()
+            ));
+        }
         
         log.info("Audio record created for S3 key: {}", request.getS3Key());
         return ResponseEntity.ok().build();
@@ -131,7 +157,8 @@ public class S3UploadController {
 
     @Operation(
             summary = "Confirm batch uploads",
-            description = "Confirm multiple uploads at once after bulk S3 upload."
+            description = "Confirm multiple uploads at once after bulk S3 upload. " +
+                    "Each file is hashed from S3 for duplicate detection."
     )
     @PostMapping("/confirm-uploads/batch")
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
@@ -153,10 +180,23 @@ public class S3UploadController {
                     continue;
                 }
                 
+                // CHANGED: Compute file hash from S3 object for duplicate detection
+                // (was: null passed to createDraftWithFile, skipping dedup entirely)
+                String fileHash = s3StorageService.computeObjectHash(file.getS3Key());  // ADDED
+                if (fileHash != null) {
+                    log.debug("Computed hash for batch file {}: {}", file.getS3Key(), fileHash);
+                } else {
+                    log.warn("Could not compute hash for batch file {} — duplicate detection skipped",
+                            file.getS3Key());
+                }
+                
                 // Get metadata
                 S3ObjectMetadata metadata = s3StorageService.getObjectMetadata(file.getS3Key());
                 
-                // Create audio record
+                // ADDED: Detect media duration via ffprobe
+                long durationSeconds = s3StorageService.getMediaDuration(file.getS3Key(), metadata.getContentType());
+                
+                // Create audio record with hash for dedup
                 String title = file.getTitle() != null ? file.getTitle() : 
                         file.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
                 
@@ -169,12 +209,16 @@ public class S3UploadController {
                         file.getFilename(),
                         metadata.getSize(),
                         metadata.getContentType(),
-                        0L,
+                        durationSeconds,          // CHANGED: was 0L
                         tenant.getId(),
-                        null
+                        fileHash             // CHANGED: was null
                 );
                 
                 succeeded.add(file.getS3Key());
+            } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
+                log.warn("Duplicate file skipped in batch confirm: {} — {}", file.getS3Key(), e.getMessage());
+                failed.add(new ConfirmError(file.getS3Key(), file.getFilename(),
+                        "DUPLICATE_FILE: " + e.getMessage()));
             } catch (Exception e) {
                 log.error("Failed to confirm upload for {}: {}", file.getS3Key(), e.getMessage());
                 failed.add(new ConfirmError(file.getS3Key(), file.getFilename(), e.getMessage()));
@@ -214,6 +258,95 @@ public class S3UploadController {
                 .build();
         
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Initiate multipart upload",
+            description = "Start a multipart upload for a large file. Returns uploadId and presigned URLs for each part. " +
+                    "Client uploads parts in parallel, then calls /multipart/complete."
+    )
+    @PostMapping("/multipart/initiate")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<MultipartInitiateResponse> initiateMultipartUpload(
+            @RequestBody MultipartInitiateRequest request,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        Tenant tenant = resolveTenant(tenantSubdomain);
+        log.info("Initiating multipart upload: {} ({}B) for tenant: {}",
+                request.getFilename(), request.getFileSize(), tenant.getSubdomain());
+
+        MultipartInitiateResponse response = s3StorageService.initiateMultipartUpload(
+                tenant.getId(),
+                request.getFilename(),
+                request.getContentType() != null ? request.getContentType() : "application/octet-stream",
+                request.getFileSize(),
+                request.getPartSize()
+        );
+
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Get multipart upload status",
+            description = "Check which parts are already uploaded (for resume). Returns uploaded parts and " +
+                    "presigned URLs for remaining parts."
+    )
+    @GetMapping("/multipart/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<MultipartStatusResponse> getMultipartStatus(
+            @RequestParam String s3Key,
+            @RequestParam String uploadId,
+            @RequestParam long partSize,
+            @RequestParam long fileSize,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        resolveTenant(tenantSubdomain); // auth check
+        log.info("Checking multipart status: uploadId={}", uploadId);
+
+        MultipartStatusResponse response = s3StorageService.getMultipartStatus(
+                s3Key, uploadId, partSize, fileSize);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Complete multipart upload",
+            description = "After all parts are uploaded, call this to assemble them into the final S3 object. " +
+                    "Then call /confirm-upload to create the audio record."
+    )
+    @PostMapping("/multipart/complete")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<Void> completeMultipartUpload(
+            @RequestBody MultipartCompleteRequest request,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        resolveTenant(tenantSubdomain); // auth check
+        log.info("Completing multipart upload: uploadId={} s3Key={} parts={}",
+                request.getUploadId(), request.getS3Key(), request.getParts().size());
+
+        s3StorageService.completeMultipartUpload(
+                request.getS3Key(), request.getUploadId(), request.getParts());
+
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(
+            summary = "Abort multipart upload",
+            description = "Cancel an in-progress multipart upload. Deletes all uploaded parts from S3."
+    )
+    @DeleteMapping("/multipart/abort")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<Void> abortMultipartUpload(
+            @RequestParam String s3Key,
+            @RequestParam String uploadId,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) {
+
+        resolveTenant(tenantSubdomain); // auth check
+        log.info("Aborting multipart upload: uploadId={} s3Key={}", uploadId, s3Key);
+
+        s3StorageService.abortMultipartUpload(s3Key, uploadId);
+
+        return ResponseEntity.noContent().build();
     }
 
     // ==================== STAGING ENDPOINTS ====================
@@ -295,7 +428,8 @@ public class S3UploadController {
 
     @Operation(
             summary = "Process staged files",
-            description = "Move files from staging to permanent storage and create audio records with metadata."
+            description = "Move files from staging to permanent storage and create audio records with metadata. " +
+                    "Each file is hashed from S3 for duplicate detection."
     )
     @PostMapping("/staging/process")
     @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
@@ -317,13 +451,26 @@ public class S3UploadController {
                     continue;
                 }
                 
+                // CHANGED: Compute file hash BEFORE moving from staging (while file is still at staging key)
+                // (was: no hash computed, null passed to createDraftWithFile)
+                String fileHash = s3StorageService.computeObjectHash(file.getStagingKey());  // ADDED
+                if (fileHash != null) {
+                    log.debug("Computed hash for staged file {}: {}", file.getStagingKey(), fileHash);
+                } else {
+                    log.warn("Could not compute hash for staged file {} — duplicate detection skipped",
+                            file.getStagingKey());
+                }
+                
                 // Move from staging to permanent storage
                 String permanentKey = s3StorageService.moveFromStagingToPermanent(file.getStagingKey(), tenant.getId());
                 
-                // Get metadata
+                // Get metadata from the permanent location
                 S3ObjectMetadata metadata = s3StorageService.getObjectMetadata(permanentKey);
                 
-                // Create audio record
+                // ADDED: Detect media duration via ffprobe
+                long durationSeconds = s3StorageService.getMediaDuration(permanentKey, metadata.getContentType());
+                
+                // Create audio record with hash for dedup
                 String title = file.getTitle() != null ? file.getTitle() : 
                         file.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
                 
@@ -336,12 +483,16 @@ public class S3UploadController {
                         file.getFilename(),
                         metadata.getSize(),
                         metadata.getContentType(),
-                        0L,
+                        durationSeconds,          // CHANGED: was 0L
                         tenant.getId(),
-                        null
+                        fileHash             // CHANGED: was null
                 );
                 
                 succeeded.add(permanentKey);
+            } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
+                log.warn("Duplicate file skipped in staging process: {} — {}", file.getStagingKey(), e.getMessage());
+                failed.add(new ConfirmError(file.getStagingKey(), file.getFilename(),
+                        "DUPLICATE_FILE: " + e.getMessage()));
             } catch (Exception e) {
                 log.error("Failed to process staged file {}: {}", file.getStagingKey(), e.getMessage());
                 failed.add(new ConfirmError(file.getStagingKey(), file.getFilename(), e.getMessage()));
@@ -407,4 +558,3 @@ public class S3UploadController {
         private String error;
     }
 }
-

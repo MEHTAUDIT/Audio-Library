@@ -30,9 +30,12 @@ public class BulkImportService {
     private final AudioSpeakerJoinRepository audioSpeakerJoinRepository;
     private final AudioTagJoinRepository audioTagJoinRepository;
     private final AudioGenreJoinRepository audioGenreJoinRepository;
+    private final SeriesService seriesService; // for auto-creating series during import
 
-    private static final Set<String> AUDIO_EXTENSIONS = Set.of(
-            ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma"
+    // Renamed from AUDIO_EXTENSIONS, added video formats for video support
+    private static final Set<String> MEDIA_EXTENSIONS = Set.of(
+            ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma",
+            ".mp4", ".mkv", ".avi", ".mov", ".webm", ".wmv", ".m4v"
     );
 
     private static final List<Pattern> SPEAKER_PATTERNS = List.of(
@@ -46,12 +49,13 @@ public class BulkImportService {
     );
 
     private static final Set<String> SKIP_PATTERNS = Set.of(
-            "audio", "files", "uploads", "library", "content", "media"
+            "audio", "video", "videos", "files", "uploads", "library", "content", "media"  // CHANGED: added video/videos
     );
 
+    // Now accepts both audio and video file extensions
     public boolean isAudioFile(String filename) {
         String lower = filename.toLowerCase();
-        return AUDIO_EXTENSIONS.stream().anyMatch(lower::endsWith);
+        return MEDIA_EXTENSIONS.stream().anyMatch(lower::endsWith);
     }
 
     public ScanResponse scanDirectory(String sourcePath) throws IOException {
@@ -146,7 +150,7 @@ public class BulkImportService {
     }
 
     public MappedAudioFile applyMappingToFile(String relativePath, String filename,
-                                               FolderStructureMapping mapping, Long sizeBytes) {
+                                              FolderStructureMapping mapping, Long sizeBytes) {
         String[] parts = relativePath.split("[/\\\\]");
         Map<String, List<String>> accumulated = new HashMap<>();
         accumulated.put("speaker", new ArrayList<>());
@@ -255,7 +259,7 @@ public class BulkImportService {
         int withinBatchDuplicateCount = 0;
         int successCount = 0;
 
-        // ── Loop 1: Compute hashes + within-batch duplicate check (Map) ──
+        // Loop 1: Compute hashes + within-batch duplicate check (Map) ─
         Map<String, MappedAudioFile> hashToFile = new LinkedHashMap<>();
         Map<String, Path> hashToPath = new LinkedHashMap<>();
 
@@ -283,13 +287,13 @@ public class BulkImportService {
             }
         }
 
-        // ── 1 DB query: Batch duplicate check against database (Set) ──
+        // ─ 1 DB query: Batch duplicate check against database (Set) ─
         Set<String> existingHashes = Collections.emptySet();
         if (!hashToFile.isEmpty()) {
             existingHashes = audioRepository.findExistingHashes(hashToFile.keySet());
         }
 
-        // ── Loop 2 (merged): Check DB Set + copy file + build entity ──
+        // ─ Loop 2 (merged): Check DB Set + copy file + build entity ─
         List<Audio> audioEntities = new ArrayList<>();
         // Track which audio gets which speaker/tags/genres for linking after save
         Map<UUID, MappedAudioFile> audioIdToMappedFile = new LinkedHashMap<>();
@@ -316,7 +320,11 @@ public class BulkImportService {
                 audio.setId(audioId);
                 audio.setTenantId(tenantId);
                 audio.setTitle(mappedFile.getTitle());
-                audio.setDescription(mappedFile.getSeries());
+                // Create/find actual Series entity instead of stuffing into description
+                if (mappedFile.getSeries() != null && !mappedFile.getSeries().isBlank()) {
+                    Series series = seriesService.findOrCreateSeries(mappedFile.getSeries(), tenantId);
+                    audio.setSeriesId(series.getId());
+                }
                 audio.setSpeaker(mappedFile.getSpeaker());     // legacy string field
                 audio.setTopic(mappedFile.getTopic());
                 audio.setLanguage("en");

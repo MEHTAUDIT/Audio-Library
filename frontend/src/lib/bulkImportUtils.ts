@@ -15,8 +15,11 @@ import type {
   AudioField,
 } from '../types/bulkImport';
 
-// Supported audio file extensions
-const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma'];
+// Renamed conceptually — now supports audio + video file extensions
+const AUDIO_EXTENSIONS = [
+  '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma',
+  '.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv', '.m4v',  
+];
 
 /**
  * Check if a file is an audio file based on extension
@@ -142,7 +145,7 @@ export function suggestMappingForLevel(
   }
 
   // Check for generic organizational folders
-  const skipPatterns = ['audio', 'files', 'uploads', 'library', 'content', 'media'];
+  const skipPatterns = ['audio', 'video', 'videos', 'files', 'uploads', 'library', 'content', 'media']; // CHANGED: added video/videos
   if (sampleValues.length === 1 && skipPatterns.some(p => 
     sampleValues[0].toLowerCase().includes(p)
   )) {
@@ -333,4 +336,3 @@ export function formatFileSize(bytes: number): string {
 export function calculateTotalSize(files: MappedAudioFile[]): number {
   return files.reduce((sum, f) => sum + (f.sizeBytes || 0), 0);
 }
-

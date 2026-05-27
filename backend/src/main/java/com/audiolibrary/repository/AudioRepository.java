@@ -17,17 +17,17 @@ import java.util.UUID;
 
 @Repository
 public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecificationExecutor<Audio> {
-    
+
     List<Audio> findByDeletedAtIsNull();
-    
+
     List<Audio> findByStatusAndDeletedAtIsNull(Audio.Status status);
-    
+
     long countByDeletedAtIsNull();
-    
+
     long countByStatusAndDeletedAtIsNull(Audio.Status status);
-    
+
     List<Audio> findByTenantIdAndDeletedAtIsNull(UUID tenantId);
-    
+
     List<Audio> findByTenantIdAndStatusAndDeletedAtIsNull(UUID tenantId, Audio.Status status);
 
     Page<Audio> findByStatusAndDeletedAtIsNull(Audio.Status status, Pageable pageable);
@@ -47,4 +47,7 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     List<Audio> findAllBySpeakerId(
             @Param("speakerId") UUID speakerId
     );
+}
+
+    List<Audio> findBySeriesIdAndDeletedAtIsNullOrderBySeriesOrderAsc(UUID seriesId);
 }

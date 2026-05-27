@@ -25,6 +25,10 @@ public class AudioResponse {
     private String url;
     private String originalFilename;
     private String status;
+    private Audio.MediaType mediaType;
+    private UUID seriesId;
+    private String seriesName;
+    private Integer seriesOrder;
     private LocalDateTime publishedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -46,6 +50,10 @@ public class AudioResponse {
                 .url(audio.getUrl())
                 .originalFilename(audio.getOriginalFilename())
                 .status(audio.getStatus() != null ? audio.getStatus().name() : null)
+                .mediaType(audio.getMediaType() != null ? audio.getMediaType() : Audio.MediaType.AUDIO)
+                .seriesId(audio.getSeriesId())
+                .seriesName(audio.getSeries() != null ? audio.getSeries().getName() : null)
+                .seriesOrder(audio.getSeriesOrder())
                 .publishedAt(audio.getPublishedAt())
                 .createdAt(audio.getCreatedAt())
                 .updatedAt(audio.getUpdatedAt())
@@ -91,4 +99,3 @@ public class AudioResponse {
         private List<AudioResponse> audios;
     }
 }
-
