@@ -36,4 +36,15 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
 
     @Query("SELECT a.fileHash FROM Audio a WHERE a.fileHash IN :hashes AND a.deletedAt IS NULL")
     Set<String> findExistingHashes(@Param("hashes") Collection<String> hashes);
+
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    JOIN a.audioSpeakers asp
+    WHERE asp.speaker.id = :speakerId
+    AND a.deletedAt IS NULL
+""")
+    List<Audio> findAllBySpeakerId(
+            @Param("speakerId") UUID speakerId
+    );
 }

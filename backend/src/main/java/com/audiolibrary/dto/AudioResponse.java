@@ -1,8 +1,10 @@
 package com.audiolibrary.dto;
 
 import com.audiolibrary.entity.Audio;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -72,6 +74,21 @@ public class AudioResponse {
         private UUID id;
         private String name;
         private String avatarUrl;
+    }
+
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SpeakerProfileResponse {
+        private UUID speakerId;
+        private String name;
+        private String bio;
+        private String websiteUrl;
+        private String profileImageUrl;
+        private Long totalAudioCount;
+        private List<AudioResponse> audios;
     }
 }
 

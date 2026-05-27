@@ -77,7 +77,6 @@ public class S3UploadController {
                 tenant.getId(),
                 request.getFiles()
         );
-        
         BatchUploadUrlResponse response = BatchUploadUrlResponse.builder()
                 .uploads(uploads)
                 .totalFiles(uploads.size())

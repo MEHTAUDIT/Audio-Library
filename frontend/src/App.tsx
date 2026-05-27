@@ -16,6 +16,7 @@ import { RegisterPage } from './pages/auth/Registerpage';
 import { AudioDetailPage } from './pages/library/AudioDetailPage';
 import { LibraryPage } from './pages/library/LibraryPage';
 import { QueuePage } from './pages/library/QueuePage';
+import { SpeakerProfilePage } from './pages/SpeakerProfilePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +55,7 @@ function AppRoutes() {
         }
       />
       <Route path="/library/:id" element={<AudioDetailPage />} />
+      <Route path="/speaker/:speakerId" element={<SpeakerProfilePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/signup" element={<Navigate to="/register" replace />} />

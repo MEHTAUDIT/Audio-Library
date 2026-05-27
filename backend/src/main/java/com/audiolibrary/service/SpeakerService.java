@@ -1,5 +1,7 @@
 package com.audiolibrary.service;
 
+import com.audiolibrary.config.TenantContext;
+import com.audiolibrary.dto.AudioResponse;
 import com.audiolibrary.entity.Audio;
 import com.audiolibrary.entity.AudioSpeakerJoin;
 import com.audiolibrary.entity.AudioSpeakerJoinId;
@@ -10,8 +12,10 @@ import com.audiolibrary.repository.AudioSpeakerJoinRepository;
 import com.audiolibrary.repository.SpeakerRepository;
 import com.audiolibrary.repository.UserFavoriteSpeakerJoinRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +28,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class SpeakerService {
 
     private final SpeakerRepository speakerRepository;
@@ -184,5 +189,37 @@ public class SpeakerService {
     @Transactional(readOnly = true)
     public List<UserFavoriteSpeakerJoin> getSubscribedUsers(UUID speakerId) {
         return favoriteSpeakerJoinRepository.findAllSubscribedToSpeaker(speakerId);
+    }
+
+
+    @Transactional(readOnly = true)
+    public ResponseEntity<AudioResponse.SpeakerProfileResponse> getSpeaker(UUID speakerId) {
+
+        log.info("Current tenant: {}", TenantContext.getCurrentTenant());
+
+        Speaker speaker = speakerRepository.findActiveById(speakerId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Speaker not found: " + speakerId
+                        ));
+
+        List<AudioResponse> audios = audioRepository
+                .findAllBySpeakerId(speakerId)
+                .stream()
+                .map(AudioResponse::fromEntity)
+                .toList();
+
+        AudioResponse.SpeakerProfileResponse response =
+                AudioResponse.SpeakerProfileResponse.builder()
+                        .speakerId(speaker.getId())
+                        .name(speaker.getName())
+                        .bio(speaker.getBio())
+                        .profileImageUrl(speaker.getAvatarUrl())
+                        .websiteUrl(speaker.getWebsiteUrl())
+                        .totalAudioCount((long) audios.size())
+                        .audios(audios)
+                        .build();
+
+        return ResponseEntity.ok(response);
     }
 }
