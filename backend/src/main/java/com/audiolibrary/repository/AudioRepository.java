@@ -47,7 +47,6 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     List<Audio> findAllBySpeakerId(
             @Param("speakerId") UUID speakerId
     );
-}
 
     List<Audio> findBySeriesIdAndDeletedAtIsNullOrderBySeriesOrderAsc(UUID seriesId);
 }
