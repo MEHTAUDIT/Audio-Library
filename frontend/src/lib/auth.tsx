@@ -1,6 +1,87 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { api } from './api';
 
+const AUTH_LANDING_PATH_KEY = 'authLandingPath';
+
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return null;
+  }
+
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const payload = JSON.parse(globalThis.atob(padded));
+    return payload as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const extractLandingPathFromToken = (token: string): string | null => {
+  const payload = decodeJwtPayload(token);
+  if (!payload) {
+    return null;
+  }
+
+  const landingPath = payload.landingPath ?? payload.redirectTo ?? payload.defaultRoute;
+  if (typeof landingPath === 'string' && landingPath.startsWith('/')) {
+    return landingPath;
+  }
+
+  if (payload.isAdmin === true) {
+    return '/admin';
+  }
+
+  const claimValues = [
+    payload.role,
+    payload.userType,
+    payload.accountType,
+    payload.type,
+    payload.primaryRole,
+    payload.defaultRole,
+  ];
+
+  const roles = [
+    ...(Array.isArray(payload.roles) ? payload.roles : []),
+    ...(Array.isArray(payload.authorities) ? payload.authorities : []),
+    ...(Array.isArray(payload.permissions) ? payload.permissions : []),
+  ]
+    .flat()
+    .filter((value): value is string => typeof value === 'string');
+
+  const normalizedClaims = [...claimValues, ...roles]
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.toLowerCase());
+
+  if (normalizedClaims.some((value) => value.includes('admin') || value.includes('owner') || value.includes('staff') || value.includes('manager'))) {
+    return '/admin';
+  }
+
+  if (normalizedClaims.some((value) => value.includes('user') || value.includes('listener') || value.includes('member') || value.includes('customer'))) {
+    return '/library';
+  }
+
+  return null;
+};
+
+export const getAuthRedirectPath = (token: string | null = localStorage.getItem('token')) => {
+  if (!token) {
+    return '/library';
+  }
+
+  return (
+    extractLandingPathFromToken(token) ??
+    localStorage.getItem(AUTH_LANDING_PATH_KEY) ??
+    '/library'
+  );
+};
+
+export const setAuthLandingPath = (path: string) => {
+  localStorage.setItem(AUTH_LANDING_PATH_KEY, path);
+};
+
 interface AuthContextType {
   token: string | null;
   login: (token: string) => void;

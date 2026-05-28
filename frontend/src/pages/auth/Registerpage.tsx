@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { useAuth } from '../../lib/auth';
+import { setAuthLandingPath, useAuth } from '../../lib/auth';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Link, useNavigate } from 'react-router-dom';
@@ -62,8 +62,9 @@ export const RegisterPage = () => {
           { email: variables.adminEmail, password: variables.adminPassword },
           { headers: { 'X-Tenant-ID': variables.subdomain } }
         );
+        setAuthLandingPath('/admin');
         login(authResp.data.token);
-        navigate('/admin');
+        navigate('/admin', { replace: true });
       } catch (e: any) {
         alert("Registration successful, but auto-login failed. Please login manually.");
         navigate('/login');
@@ -91,8 +92,9 @@ export const RegisterPage = () => {
       });
     },
     onSuccess: (response) => {
+      setAuthLandingPath('/library');
       login(response.data.token);
-      navigate('/library');
+      navigate('/library', { replace: true });
     },
     onError: (error: any) => {
       const message = error.response?.data?.error

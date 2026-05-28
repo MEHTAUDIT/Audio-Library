@@ -3,7 +3,7 @@ import React from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { TooltipProvider } from './components/ui/Tooltip';
-import { AuthProvider, useAuth } from './lib/auth';
+import { AuthProvider, getAuthRedirectPath, useAuth } from './lib/auth';
 import { ArchivedPage } from './pages/admin/ArchivedPage';
 import { BulkUploadPage } from './pages/admin/BulkUploadPage';
 import { DashboardPage } from './pages/admin/DashboardPage';
@@ -43,6 +43,16 @@ const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   return <AdminLayout>{children}</AdminLayout>;
 };
 
+const PublicAuthRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated } = useAuth();
+
+  if (isAuthenticated) {
+    return <Navigate to={getAuthRedirectPath()} replace />;
+  }
+
+  return <>{children}</>;
+};
+
 function AppRoutes() {
   return (
     <Routes>
@@ -60,8 +70,22 @@ function AppRoutes() {
         <Route path="/speaker/:speakerId" element={<SpeakerProfilePage />} />
         <Route path="/library/:id" element={<AudioDetailPage />} />
       <Route path="/series/:id" element={<SeriesDetailPage />} />  {/* ADDED */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        path="/login"
+        element={
+          <PublicAuthRoute>
+            <LoginPage />
+          </PublicAuthRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicAuthRoute>
+            <RegisterPage />
+          </PublicAuthRoute>
+        }
+      />
       <Route path="/signup" element={<Navigate to="/register" replace />} />
 
       {/* Admin Routes */}

@@ -11,12 +11,14 @@ import {
   History,
   List,
   ListMusic,
+  LogIn,
   Music2,
   Pause,
   Play,
   Sparkles,
   TrendingUp,
   User,
+  UserPlus,
   Volume2
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
@@ -424,6 +426,25 @@ export function LibraryPage() {
                 debounceMs={400}
               />
             </div>
+
+            {!isAuthenticated && (
+              <div className="mt-5 flex flex-col sm:flex-row justify-center gap-3">
+                <Link
+                  to="/login"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-primary-700 shadow-lg shadow-black/10 transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Sign in
+                </Link>
+                <Link
+                  to="/register"
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/30 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-all hover:bg-white/15 hover:-translate-y-0.5"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Register
+                </Link>
+              </div>
+            )}
 
             {isAuthenticated && (
               <div className="mt-5 flex justify-center">
