@@ -12,6 +12,7 @@ import {
   List,
   ListMusic,
   LogIn,
+  LogOut,
   Music2,
   Pause,
   Play,
@@ -195,7 +196,7 @@ function AudioCard({
 
 export function LibraryPage() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const [searchFilters, setSearchFilters] = useState<LibraryFilters>({
     audioSubstring: '',
     speakerName: null,
@@ -337,6 +338,11 @@ export function LibraryPage() {
     navigate(`/library/${id}`);
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/library', { replace: true });
+  };
+
   // Get content based on active tab
   const getTabContent = () => {
     switch (activeTab) {
@@ -447,14 +453,22 @@ export function LibraryPage() {
             )}
 
             {isAuthenticated && (
-              <div className="mt-5 flex justify-center">
+              <div className="mt-5 flex flex-col sm:flex-row justify-center gap-3">
                 <Link
                   to="/queue"
-                  className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-sm border border-white/20 hover:bg-white/15 transition-colors"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-sm border border-white/20 hover:bg-white/15 transition-colors"
                 >
                   <ListMusic className="w-4 h-4" />
                   Open queue page
                 </Link>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/30 bg-white px-4 py-2 text-sm font-semibold text-primary-700 shadow-lg shadow-black/10 transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
+                </button>
               </div>
             )}
           </motion.div>
