@@ -1,7 +1,14 @@
 package com.audiolibrary.service;
 
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
 import com.audiolibrary.config.TenantContext;
 import com.audiolibrary.dto.AudioResponse;
+import com.audiolibrary.dto.SpeakerUpsertRequest;
 import com.audiolibrary.entity.Audio;
 import com.audiolibrary.entity.AudioSpeakerJoin;
 import com.audiolibrary.entity.AudioSpeakerJoinId;
@@ -11,19 +18,6 @@ import com.audiolibrary.repository.AudioRepository;
 import com.audiolibrary.repository.AudioSpeakerJoinRepository;
 import com.audiolibrary.repository.SpeakerRepository;
 import com.audiolibrary.repository.UserFavoriteSpeakerJoinRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -39,15 +33,20 @@ public class SpeakerService {
     /**
      * Create a new speaker.
      */
-    public Speaker createSpeaker(UUID tenantId, String name, String bio, String avatarUrl, String websiteUrl) {
+    public AudioResponse.SpeakerProfileResponse createSpeaker(UUID tenantId, SpeakerUpsertRequest request) {
+        validateSpeakerName(tenantId, request.getName(), null);
+
         Speaker speaker = new Speaker();
         speaker.setTenantId(tenantId);
-        speaker.setName(name);
-        speaker.setBio(bio);
-        speaker.setAvatarUrl(avatarUrl);
-        speaker.setWebsiteUrl(websiteUrl);
-        
-        return speakerRepository.save(speaker);
+        speaker.setName(request.getName().trim());
+        speaker.setBio(cleanNullableString(request.getBio()));
+        speaker.setAvatarUrl(cleanNullableString(request.getProfileImageUrl()));
+        speaker.setWebsiteUrl(cleanNullableString(request.getWebsiteUrl()));
+
+        Speaker saved = speakerRepository.save(speaker);
+        log.info("Created speaker: id={} name='{}' tenant={}", saved.getId(), saved.getName(), tenantId);
+
+        return buildSpeakerProfileResponse(saved);
     }
 
     /**
@@ -85,24 +84,32 @@ public class SpeakerService {
     /**
      * Update speaker details.
      */
-    public Speaker updateSpeaker(UUID speakerId, String name, String bio, String avatarUrl, String websiteUrl) {
+    public AudioResponse.SpeakerProfileResponse updateSpeaker(UUID tenantId, UUID speakerId, SpeakerUpsertRequest request) {
         Speaker speaker = speakerRepository.findActiveById(speakerId)
                 .orElseThrow(() -> new IllegalArgumentException("Speaker not found: " + speakerId));
+
+        if (!tenantId.equals(speaker.getTenantId())) {
+            throw new IllegalArgumentException("Speaker not found: " + speakerId);
+        }
+
+        if (StringUtils.hasText(request.getName())) {
+            validateSpeakerName(tenantId, request.getName(), speakerId);
+            speaker.setName(request.getName().trim());
+        }
+        if (request.getBio() != null) {
+            speaker.setBio(cleanNullableString(request.getBio()));
+        }
+        if (request.getProfileImageUrl() != null) {
+            speaker.setAvatarUrl(cleanNullableString(request.getProfileImageUrl()));
+        }
+        if (request.getWebsiteUrl() != null) {
+            speaker.setWebsiteUrl(cleanNullableString(request.getWebsiteUrl()));
+        }
         
-        if (name != null) {
-            speaker.setName(name);
-        }
-        if (bio != null) {
-            speaker.setBio(bio);
-        }
-        if (avatarUrl != null) {
-            speaker.setAvatarUrl(avatarUrl);
-        }
-        if (websiteUrl != null) {
-            speaker.setWebsiteUrl(websiteUrl);
-        }
-        
-        return speakerRepository.save(speaker);
+        Speaker saved = speakerRepository.save(speaker);
+        log.info("Updated speaker: id={} name='{}'", saved.getId(), saved.getName());
+
+        return buildSpeakerProfileResponse(saved);
     }
 
     /**
@@ -221,5 +228,42 @@ public class SpeakerService {
                         .build();
 
         return ResponseEntity.ok(response);
+    }
+
+    private void validateSpeakerName(UUID tenantId, String name, UUID currentSpeakerId) {
+        if (!StringUtils.hasText(name)) {
+            throw new IllegalArgumentException("Speaker name is required");
+        }
+
+        speakerRepository.findByTenantIdAndNameIgnoreCaseAndDeletedAtIsNull(tenantId, name.trim())
+                .filter(existing -> currentSpeakerId == null || !existing.getId().equals(currentSpeakerId))
+                .ifPresent(existing -> {
+                    throw new IllegalArgumentException("Speaker already exists: " + name.trim());
+                });
+    }
+
+    private String cleanNullableString(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private AudioResponse.SpeakerProfileResponse buildSpeakerProfileResponse(Speaker speaker) {
+        List<AudioResponse> audios = audioRepository
+                .findAllBySpeakerId(speaker.getId())
+                .stream()
+                .map(AudioResponse::fromEntity)
+                .toList();
+
+        return AudioResponse.SpeakerProfileResponse.builder()
+                .speakerId(speaker.getId())
+                .name(speaker.getName())
+                .bio(speaker.getBio())
+                .websiteUrl(speaker.getWebsiteUrl())
+                .profileImageUrl(speaker.getAvatarUrl())
+                .totalAudioCount((long) audios.size())
+                .audios(audios)
+                .build();
     }
 }

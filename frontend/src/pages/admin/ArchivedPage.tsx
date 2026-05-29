@@ -1,21 +1,21 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  FileAudio,
-  Archive,
-  RotateCcw,
-  Trash2,
-  Search,
-  Loader2,
-  Play,
-  Pause,
-  User,
+    Archive,
+    FileAudio,
+    Loader2,
+    Pause,
+    Play,
+    RotateCcw,
+    Search,
+    Trash2,
+    User,
 } from 'lucide-react';
-import { audioApi } from '../../lib/audioApi';
-import { Card, CardContent } from '../../components/ui/Card';
+import React, { useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
+import { audioApi } from '../../lib/audioApi';
 import { useAudioPlayback } from '../../lib/useAudioPlayback';
 
 export function ArchivedPage() {

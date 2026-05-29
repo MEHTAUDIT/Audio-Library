@@ -12,6 +12,7 @@ import { PublishedPage } from './pages/admin/PublishedPage';
 import { StagingPage } from './pages/admin/StagingPage';
 import { SeriesListPage } from './pages/admin/SeriesListPage';
 import { SeriesManagePage } from './pages/admin/SeriesManagePage';
+import { SettingsPage } from './pages/admin/SettingsPage';
 import { SeriesDetailPage } from './pages/library/SeriesDetailPage';
 import { UploadPage } from './pages/admin/UploadPage';
 import { LoginPage } from './pages/auth/LoginPage';
@@ -166,10 +167,7 @@ function AppRoutes() {
         path="/admin/settings"
         element={
           <AdminRoute>
-            <div className="text-center py-12">
-              <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-              <p className="text-slate-500 mt-2">Settings page coming soon.</p>
-            </div>
+            <SettingsPage />
           </AdminRoute>
         }
       />

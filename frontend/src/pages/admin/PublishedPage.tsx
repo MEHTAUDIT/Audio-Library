@@ -1,30 +1,28 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  FileAudio,
-  CheckCircle,
-  Archive,
-  EyeOff,
-  Search,
-  Filter,
-  Play,
-  Pause,
-  User,
-  Loader2,
-  Calendar,
-  ExternalLink,
-  Clock,
-  Video,
+    Archive,
+    Calendar,
+    CheckCircle,
+    Clock,
+    ExternalLink,
+    EyeOff,
+    Filter,
+    Loader2,
+    Pause,
+    Play,
+    Search,
+    User,
+    Video
 } from 'lucide-react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { audioApi } from '../../lib/audioApi';
-import { Card, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
-import type { Audio } from '../../types/audio';
-import { isVideo } from '../../types/audio';
+import { audioApi } from '../../lib/audioApi';
 import { useAudioPlayback } from '../../lib/useAudioPlayback'; // ADDED: reuse existing playback hook
+import { isVideo } from '../../types/audio';
 
 export function PublishedPage() {
   const queryClient = useQueryClient();

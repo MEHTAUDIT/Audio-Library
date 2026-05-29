@@ -146,6 +146,7 @@ public class AudioService {
     /**
      * Get all audio files (optionally filtered by status)
      */
+    @Transactional(readOnly = true)
     public List<AudioResponse> getAllAudio(Audio.Status status) {
         List<Audio> audioList;
         if (status != null) {
@@ -159,6 +160,7 @@ public class AudioService {
     }
 
     /* optionally:  get filtered list of audio from searchbar */
+    @Transactional(readOnly = true)
     public List<AudioResponse> getFilteredAudioList(
             String speakerName,
             String tag,
@@ -239,6 +241,7 @@ public class AudioService {
     /**
      * Get audio by ID
      */
+    @Transactional(readOnly = true)
     public AudioResponse getAudioById(UUID id) {
         Audio audio = audioRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Audio not found: " + id));

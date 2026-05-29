@@ -1,26 +1,26 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+    ArrowDown,
+    ArrowLeft,
+    ArrowUp,
+    Check,
+    Library,
+    Music,
+    Pause,
+    Play,
+    Plus,
+    Search,
+    Trash2,
+    Video,
+    X,
+} from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  ArrowLeft,
-  Library,
-  Music,
-  Plus,
-  Search,
-  Trash2,
-  X,
-  ArrowUp,
-  ArrowDown,
-  Play,
-  Pause,
-  Video,
-  Check,
-} from 'lucide-react';
-import { seriesApi } from '../../lib/seriesApi';
 import { audioApi } from '../../lib/audioApi';
-import { isVideo, type Audio } from '../../types/audio';
+import { seriesApi } from '../../lib/seriesApi';
 import { useAudioPlayback } from '../../lib/useAudioPlayback';
+import { isVideo, type Audio } from '../../types/audio';
 
 export function SeriesManagePage() {
   const { id } = useParams<{ id: string }>();

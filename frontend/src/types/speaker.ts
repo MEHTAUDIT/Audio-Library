@@ -19,3 +19,10 @@ export interface SpeakerProfileResponse {
   totalAudios: number;
   audios: Audio[];
 }
+
+export interface SpeakerUpsertRequest {
+  name: string;
+  bio?: string;
+  websiteUrl?: string;
+  profileImageUrl?: string;
+}
