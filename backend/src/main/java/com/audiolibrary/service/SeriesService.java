@@ -75,7 +75,7 @@ public class SeriesService {
         log.info("Deleted series: id={} name='{}', unlinked {} audio items",
                 id, series.getName(), seriesAudio.size());
     }
-
+    @Transactional(readOnly = true)
     public SeriesResponse getSeriesById(UUID id) {
         Series series = seriesRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new RuntimeException("Series not found: " + id));
@@ -84,7 +84,15 @@ public class SeriesService {
 
         // Include ordered audio items for detail view
         List<Audio> audioItems = audioRepository.findBySeriesIdAndDeletedAtIsNullOrderBySeriesOrderAsc(id);
-        response.setAudioItems(audioItems.stream().map(AudioResponse::fromEntity).toList());
+        response.setAudioItems(
+                audioItems.stream()
+                        .map(audio -> {
+                            AudioResponse dto = AudioResponse.fromEntity(audio);
+                            dto.setSeriesName(series.getName());
+                            return dto;
+                        })
+                        .toList()
+        );
 
         return response;
     }
@@ -100,7 +108,7 @@ public class SeriesService {
                 .map(this::buildResponse)
                 .toList();
     }
-
+    @Transactional
     public SeriesResponse getPublishedSeriesById(UUID id) {
         Series series = seriesRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new RuntimeException("Series not found: " + id));

@@ -18,6 +18,33 @@ import java.util.UUID;
 @Repository
 public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecificationExecutor<Audio> {
 
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    LEFT JOIN FETCH a.audioSpeakers asp
+    LEFT JOIN FETCH asp.speaker
+    WHERE a.deletedAt IS NULL
+    """)
+    List<Audio> findAllWithSpeakersByDeletedAtIsNull();
+
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    LEFT JOIN FETCH a.audioSpeakers asp
+    LEFT JOIN FETCH asp.speaker
+    WHERE a.status = :status AND a.deletedAt IS NULL
+    """)
+    List<Audio> findAllWithSpeakersByStatusAndDeletedAtIsNull(@Param("status") Audio.Status status);
+
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    LEFT JOIN FETCH a.audioSpeakers asp
+    LEFT JOIN FETCH asp.speaker
+    WHERE a.id = :id
+    """)
+    Optional<Audio> findByIdWithSpeakers(@Param("id") UUID id);
+
     List<Audio> findByDeletedAtIsNull();
 
     List<Audio> findByStatusAndDeletedAtIsNull(Audio.Status status);
@@ -36,6 +63,17 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
 
     @Query("SELECT a.fileHash FROM Audio a WHERE a.fileHash IN :hashes AND a.deletedAt IS NULL")
     Set<String> findExistingHashes(@Param("hashes") Collection<String> hashes);
+
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    JOIN a.audioSpeakers asp
+    WHERE asp.speaker.id = :speakerId
+    AND a.deletedAt IS NULL
+""")
+    List<Audio> findAllBySpeakerId(
+            @Param("speakerId") UUID speakerId
+    );
 
     List<Audio> findBySeriesIdAndDeletedAtIsNullOrderBySeriesOrderAsc(UUID seriesId);
 }

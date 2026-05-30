@@ -1,24 +1,35 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  FileAudio,
-  Archive,
-  RotateCcw,
-  Trash2,
-  Search,
-  Loader2,
-  Play,
-  User,
+    Archive,
+    FileAudio,
+    Loader2,
+    Pause,
+    Play,
+    RotateCcw,
+    Search,
+    Trash2,
+    User,
 } from 'lucide-react';
-import { audioApi } from '../../lib/audioApi';
-import { Card, CardContent } from '../../components/ui/Card';
+import React, { useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
+import { audioApi } from '../../lib/audioApi';
+import { useAudioPlayback } from '../../lib/useAudioPlayback';
 
 export function ArchivedPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+
+  const {
+    audioRef,
+    playingAudioId,
+    playAudio,
+    isPlaying,
+    currentTime,
+    duration,
+  } = useAudioPlayback();
 
   const { data: allAudio, isLoading } = useQuery({
     queryKey: ['allAudio', 'ARCHIVED'],
@@ -26,9 +37,10 @@ export function ArchivedPage() {
   });
 
   const unpublishMutation = useMutation({
-    mutationFn: audioApi.unpublish, // This moves back to draft
+    mutationFn: audioApi.publish,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allAudio'] });
+      queryClient.invalidateQueries({ queryKey: ['publishedAudio'] });
       queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
       queryClient.invalidateQueries({ queryKey: ['audioStats'] });
     },
@@ -53,8 +65,25 @@ export function ArchivedPage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleSeek = (time: number) => {
+    const media = audioRef.current;
+    if (!media || !Number.isFinite(time)) {
+      return;
+    }
+
+    media.currentTime = time;
+  };
+
   return (
     <div className="space-y-6">
+      <video ref={audioRef as React.RefObject<HTMLVideoElement>} className="hidden" />
+
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -122,6 +151,21 @@ export function ArchivedPage() {
                       <div className="w-12 h-12 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0">
                         <FileAudio className="w-6 h-6 text-slate-400" />
                       </div>
+                      <button
+                        onClick={() => playAudio({ id: audio.id })}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
+                          playingAudioId === audio.id && isPlaying
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                        }`}
+                        title={playingAudioId === audio.id && isPlaying ? `Pause ${audio.title}` : `Play ${audio.title}`}
+                      >
+                        {playingAudioId === audio.id && isPlaying ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4 ml-0.5" />
+                        )}
+                      </button>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium text-slate-700">{audio.title}</h3>
                         <div className="flex items-center gap-3 mt-0.5 text-sm text-slate-400">
@@ -136,18 +180,38 @@ export function ArchivedPage() {
                             {formatDuration(audio.durationSeconds)}
                           </span>
                         </div>
+                        {playingAudioId === audio.id && (
+                          <div className="mt-3 space-y-1.5">
+                            <input
+                              type="range"
+                              min={0}
+                              max={Math.max(duration || audio.durationSeconds || 0, 0)}
+                              step="0.1"
+                              value={Math.min(currentTime, duration || audio.durationSeconds || 0)}
+                              onChange={(event) => handleSeek(Number(event.target.value))}
+                              className="w-full h-1.5 appearance-none rounded-full bg-slate-200 accent-slate-900 cursor-pointer"
+                              aria-label={`Seek ${audio.title}`}
+                              disabled={(duration || audio.durationSeconds || 0) <= 0}
+                            />
+                            <div className="flex justify-between text-xs text-slate-400">
+                              <span>{formatTime(currentTime)}</span>
+                              <span>{formatTime(duration || audio.durationSeconds || 0)}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => unpublishMutation.mutate(audio.id)}
+                              title="Restore to published"
                               className="p-2 rounded-lg text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
                             >
                               <RotateCcw className="w-4 h-4" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>Restore to draft</TooltipContent>
+                          <TooltipContent>Restore to published</TooltipContent>
                         </Tooltip>
 
                         <Tooltip>
@@ -158,6 +222,7 @@ export function ArchivedPage() {
                                   deleteMutation.mutate(audio.id);
                                 }
                               }}
+                              title="Delete permanently"
                               className="p-2 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />

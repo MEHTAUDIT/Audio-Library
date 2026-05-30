@@ -46,6 +46,7 @@ public class BulkImportDtos {
     }
 
     // ==================== Response DTOs ====================
+    // scan resposnse
 
     @Data
     @NoArgsConstructor

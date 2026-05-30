@@ -3,7 +3,7 @@ import React from 'react';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { AdminLayout } from './components/layout/AdminLayout';
 import { TooltipProvider } from './components/ui/Tooltip';
-import { AuthProvider, useAuth } from './lib/auth';
+import { AuthProvider, getAuthRedirectPath, useAuth } from './lib/auth';
 import { ArchivedPage } from './pages/admin/ArchivedPage';
 import { BulkUploadPage } from './pages/admin/BulkUploadPage';
 import { DashboardPage } from './pages/admin/DashboardPage';
@@ -12,13 +12,15 @@ import { PublishedPage } from './pages/admin/PublishedPage';
 import { StagingPage } from './pages/admin/StagingPage';
 import { SeriesListPage } from './pages/admin/SeriesListPage';
 import { SeriesManagePage } from './pages/admin/SeriesManagePage';
-import { SeriesDetailPage } from './pages/library/SeriesDetailPage'; 
+import { SettingsPage } from './pages/admin/SettingsPage';
+import { SeriesDetailPage } from './pages/library/SeriesDetailPage';
 import { UploadPage } from './pages/admin/UploadPage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/Registerpage';
 import { AudioDetailPage } from './pages/library/AudioDetailPage';
 import { LibraryPage } from './pages/library/LibraryPage';
 import { QueuePage } from './pages/library/QueuePage';
+import { SpeakerProfilePage } from './pages/SpeakerProfilePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +44,16 @@ const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   return <AdminLayout>{children}</AdminLayout>;
 };
 
+const PublicAuthRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated } = useAuth();
+
+  if (isAuthenticated) {
+    return <Navigate to={getAuthRedirectPath()} replace />;
+  }
+
+  return <>{children}</>;
+};
+
 function AppRoutes() {
   return (
     <Routes>
@@ -56,10 +68,25 @@ function AppRoutes() {
           </PrivateRoute>
         }
       />
-      <Route path="/library/:id" element={<AudioDetailPage />} />
+        <Route path="/speaker/:speakerId" element={<SpeakerProfilePage />} />
+        <Route path="/library/:id" element={<AudioDetailPage />} />
       <Route path="/series/:id" element={<SeriesDetailPage />} />  {/* ADDED */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        path="/login"
+        element={
+          <PublicAuthRoute>
+            <LoginPage />
+          </PublicAuthRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicAuthRoute>
+            <RegisterPage />
+          </PublicAuthRoute>
+        }
+      />
       <Route path="/signup" element={<Navigate to="/register" replace />} />
 
       {/* Admin Routes */}
@@ -140,10 +167,7 @@ function AppRoutes() {
         path="/admin/settings"
         element={
           <AdminRoute>
-            <div className="text-center py-12">
-              <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-              <p className="text-slate-500 mt-2">Settings page coming soon.</p>
-            </div>
+            <SettingsPage />
           </AdminRoute>
         }
       />

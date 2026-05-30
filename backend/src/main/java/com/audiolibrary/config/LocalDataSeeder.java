@@ -1,9 +1,11 @@
 package com.audiolibrary.config;
 
 import com.audiolibrary.entity.Audio;
+import com.audiolibrary.entity.Speaker;
 import com.audiolibrary.entity.Tenant;
 import com.audiolibrary.entity.User;
 import com.audiolibrary.repository.AudioRepository;
+import com.audiolibrary.repository.SpeakerRepository;
 import com.audiolibrary.repository.TenantRepository;
 import com.audiolibrary.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ public class LocalDataSeeder implements CommandLineRunner {
     private final FlywayConfig flywayConfig;
     private final PasswordEncoder passwordEncoder;
     private final javax.sql.DataSource dataSource;
+    private final SpeakerRepository speakerRepository;
 
     @Override
     public void run(String... args) {
@@ -61,7 +64,11 @@ public class LocalDataSeeder implements CommandLineRunner {
             log.info("Checking if user {} exists in tenant {}", adminEmail, TenantContext.getCurrentTenant());
             boolean userExists = userRepository.existsByEmail(adminEmail);
             log.info("User {} exists: {}", adminEmail, userExists);
-            
+            // adding seeded data for speaker..
+            if (speakerRepository.count() == 0) {
+                seedSpeakers(tenant);
+                log.info("Seeded {} speakers", speakerRepository.count());
+            }
             if (!userExists) {
                 User admin = new User();
                 admin.setEmail(adminEmail);
@@ -84,7 +91,56 @@ public class LocalDataSeeder implements CommandLineRunner {
             TenantContext.clear();
         }
     }
+    private void seedSpeakers(Tenant tenant) {
 
+        createSpeaker(
+                tenant,
+                "Andrew Huberman",
+                "Neuroscientist and educator focused on brain optimization, sleep, and performance.",
+                "https://randomuser.me/api/portraits/men/32.jpg",
+                "https://www.hubermanlab.com"
+        );
+
+        createSpeaker(
+                tenant,
+                "Naval Ravikant",
+                "Entrepreneur, investor, and thinker sharing wisdom on wealth, startups, and happiness.",
+                "https://randomuser.me/api/portraits/men/41.jpg",
+                "https://nav.al"
+        );
+
+        createSpeaker(
+                tenant,
+                "Jordan Peterson",
+                "Psychologist and author discussing responsibility, meaning, and personal growth.",
+                "https://randomuser.me/api/portraits/men/52.jpg",
+                "https://www.jordanbpeterson.com"
+        );
+
+        createSpeaker(
+                tenant,
+                "Mel Robbins",
+                "Motivational speaker helping people overcome procrastination and fear.",
+                "https://randomuser.me/api/portraits/women/44.jpg",
+                "https://www.melrobbins.com"
+        );
+
+        createSpeaker(
+                tenant,
+                "Ali Abdaal",
+                "Doctor, entrepreneur, and productivity educator.",
+                "https://randomuser.me/api/portraits/men/67.jpg",
+                "https://aliabdaal.com"
+        );
+
+        createSpeaker(
+                tenant,
+                "Jay Shetty",
+                "Storyteller and podcast host focused on mindfulness and relationships.",
+                "https://randomuser.me/api/portraits/men/28.jpg",
+                "https://jayshetty.me"
+        );
+    }
     private void seedAudioFiles(Tenant tenant) {
         // Published audio files (visible to users)
         createAudio(tenant, "Welcome to Audio Library", 
@@ -164,7 +220,24 @@ public class LocalDataSeeder implements CommandLineRunner {
         
         audioRepository.save(audio);
     }
+    private void createSpeaker(
+            Tenant tenant,
+            String name,
+            String bio,
+            String avatarUrl,
+            String websiteUrl
+    ) {
 
+        Speaker speaker = new Speaker();
+
+        speaker.setTenantId(tenant.getId());
+        speaker.setName(name);
+        speaker.setBio(bio);
+        speaker.setAvatarUrl(avatarUrl);
+        speaker.setWebsiteUrl(websiteUrl);
+
+        speakerRepository.save(speaker);
+    }
     private void createPublicSchemaTables() {
         log.info("Creating public schema tables for H2...");
         try (java.sql.Connection connection = dataSource.getConnection();
@@ -191,6 +264,7 @@ public class LocalDataSeeder implements CommandLineRunner {
             throw new RuntimeException("Failed to create public schema tables", e);
         }
     }
+
 }
 
 

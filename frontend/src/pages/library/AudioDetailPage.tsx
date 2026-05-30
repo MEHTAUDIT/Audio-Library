@@ -52,6 +52,8 @@ export function AudioDetailPage() {
     enabled: !!id,
   });
 
+  const primarySpeakerId = audio?.speakers?.[0]?.id;
+
   // Fetch user status (favorited, in queue)
   const { data: isFavorited } = useQuery({
     queryKey: ['audioFavorited', id],
@@ -336,7 +338,17 @@ export function AudioDetailPage() {
               {audio.speaker && (
                 <div className="flex items-center gap-2 text-slate-700">
                   <User className="w-5 h-5" />
-                  <span className="text-lg">{audio.speaker}</span>
+                  {primarySpeakerId ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/speaker/${primarySpeakerId}`)}
+                      className="text-lg text-left transition-colors hover:text-primary-700"
+                    >
+                      {audio.speaker}
+                    </button>
+                  ) : (
+                    <span className="text-lg">{audio.speaker}</span>
+                  )}
                 </div>
               )}
 

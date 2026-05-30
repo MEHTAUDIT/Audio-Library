@@ -1,32 +1,43 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  FileAudio,
-  CheckCircle,
-  Archive,
-  Eye,
-  EyeOff,
-  Search,
-  Filter,
-  Play,
-  User,
-  Tag,
-  Loader2,
-  Calendar,
-  ExternalLink,
-  MoreHorizontal,
+    Archive,
+    Calendar,
+    CheckCircle,
+    Clock,
+    ExternalLink,
+    EyeOff,
+    Filter,
+    Loader2,
+    Pause,
+    Play,
+    Search,
+    User,
+    Video
 } from 'lucide-react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { audioApi } from '../../lib/audioApi';
-import { Card, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
+import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
-import type { Audio } from '../../types/audio';
+import { audioApi } from '../../lib/audioApi';
+import { useAudioPlayback } from '../../lib/useAudioPlayback'; // ADDED: reuse existing playback hook
+import { isVideo } from '../../types/audio';
 
 export function PublishedPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+
+  // ADDED: Reuse the app's existing playback hook — same one used in Library/Series pages
+  const {
+    audioRef,
+    playingAudioId,
+    playAudio,
+    isPlaying,
+    currentTime,
+    duration,
+    stop,
+  } = useAudioPlayback();
 
   const { data: publishedAudio, isLoading } = useQuery({
     queryKey: ['publishedAudio'],
@@ -67,6 +78,22 @@ export function PublishedPage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleSeek = (time: number) => {
+    const media = audioRef.current;
+    if (!media || !Number.isFinite(time)) {
+      return;
+    }
+
+    media.currentTime = time;
+    setCurrentTime(time);
+  };
+
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Unknown';
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -78,6 +105,39 @@ export function PublishedPage() {
 
   return (
     <div className="space-y-6">
+      {/* ADDED: Hidden media element for playback — handles both audio + video */}
+      {(() => {
+        const playingItem = publishedAudio?.find(a => a.id === playingAudioId);
+        const showVideo = playingItem && isVideo(playingItem);
+        return (
+          <>
+            <video
+              ref={audioRef as React.RefObject<HTMLVideoElement>}
+              className="hidden"
+            />
+            {showVideo && (
+              <div className="fixed bottom-6 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900">
+                  <span className="text-white text-xs font-medium truncate max-w-[200px]">
+                    {playingItem?.title}
+                  </span>
+                  <button
+                    onClick={stop}
+                    className="text-white/60 hover:text-white ml-2 text-lg leading-none"
+                  >×</button>
+                </div>
+                <video
+                  src={(audioRef.current as HTMLVideoElement)?.src}
+                  className="w-80 max-h-48"
+                  controls
+                  autoPlay
+                />
+              </div>
+            )}
+          </>
+        );
+      })()}
+
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -145,90 +205,143 @@ export function PublishedPage() {
           className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"
         >
           <AnimatePresence>
-            {filteredAudio.map((audio, index) => (
-              <motion.div
-                key={audio.id}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ delay: index * 0.05 }}
-              >
-                <Card className="h-full hover:shadow-lg transition-shadow group">
-                  <CardContent className="p-5">
-                    <div className="flex items-start gap-4">
-                      <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-200 group-hover:scale-105 transition-transform">
-                        <FileAudio className="w-7 h-7 text-white" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-semibold text-slate-900 line-clamp-1">
-                            {audio.title}
-                          </h3>
-                          <Badge variant="success" className="flex-shrink-0">
-                            Live
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
-                          {audio.speaker && (
-                            <span className="flex items-center gap-1">
-                              <User className="w-3.5 h-3.5" />
-                              {audio.speaker}
-                            </span>
+            {filteredAudio.map((audio, index) => {
+              const isCurrentlyPlaying = playingAudioId === audio.id;
+              return (
+                <motion.div
+                  key={audio.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ delay: index * 0.05 }}
+                >
+                  {/* CHANGED: Added ring highlight when playing */}
+                  <Card className={`h-full hover:shadow-lg transition-all group ${
+                    isCurrentlyPlaying ? 'ring-2 ring-emerald-400 shadow-lg' : ''
+                  }`}>
+                    <CardContent className="p-5">
+                      <div className="flex items-start gap-4">
+                        {/* CHANGED: Play button — was static icon, now functional */}
+                        <button
+                          onClick={() => playAudio({ id: audio.id })}
+                          className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg transition-all hover:scale-105 ${
+                            isCurrentlyPlaying
+                              ? 'bg-gradient-to-br from-emerald-500 to-green-600 shadow-emerald-300'
+                              : 'bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-200'
+                          }`}
+                          title={isCurrentlyPlaying && isPlaying ? 'Pause' : 'Play'}
+                        >
+                          {isCurrentlyPlaying && isPlaying ? (
+                            <Pause className="w-7 h-7 text-white" />
+                          ) : (
+                            <Play className="w-7 h-7 text-white ml-1" />
                           )}
-                          <span className="flex items-center gap-1">
-                            <Play className="w-3.5 h-3.5" />
-                            {formatDuration(audio.durationSeconds)}
-                          </span>
+                        </button>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="font-semibold text-slate-900 line-clamp-1">
+                              {audio.title}
+                            </h3>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              {isVideo(audio) && (
+                                <Badge variant="info" className="text-xs">
+                                  <Video className="w-3 h-3 mr-1" />
+                                  Video
+                                </Badge>
+                              )}
+                              <Badge variant="success">
+                                Live
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
+                            {audio.speaker && (
+                              <span className="flex items-center gap-1">
+                                <User className="w-3.5 h-3.5" />
+                                {audio.speaker}
+                              </span>
+                            )}
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" />
+                              {isCurrentlyPlaying
+                                ? formatTime(duration || audio.durationSeconds)
+                                : formatDuration(audio.durationSeconds)}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {audio.description && (
-                      <p className="text-slate-600 text-sm mt-3 line-clamp-2">
-                        {audio.description}
-                      </p>
-                    )}
+                      {audio.description && (
+                        <p className="text-slate-600 text-sm mt-3 line-clamp-2">
+                          {audio.description}
+                        </p>
+                      )}
 
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100">
-                      <div className="flex items-center gap-1 text-xs text-slate-400">
-                        <Calendar className="w-3.5 h-3.5" />
-                        Published {formatDate(audio.publishedAt)}
+                      {/* ADDED: Progress bar when this audio is playing */}
+                      {isCurrentlyPlaying && (
+                        <div className="mt-3">
+                          <input
+                            type="range"
+                            min={0}
+                            max={Math.max(duration || audio.durationSeconds || 0, 0)}
+                            step="0.1"
+                            value={Math.min(currentTime, duration || audio.durationSeconds || 0)}
+                            onChange={(event) => handleSeek(Number(event.target.value))}
+                            className="w-full h-1.5 appearance-none rounded-full bg-slate-200 accent-emerald-500 cursor-pointer"
+                            aria-label={`Seek ${audio.title}`}
+                            disabled={(duration || audio.durationSeconds || 0) <= 0}
+                          />
+                          <div className="flex justify-between text-xs text-slate-400 mt-1">
+                            <span>{formatTime(currentTime)}</span>
+                            <span>{formatTime(duration)}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100">
+                        <div className="flex items-center gap-1 text-xs text-slate-400">
+                          <Calendar className="w-3.5 h-3.5" />
+                          Published {formatDate(audio.publishedAt)}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => unpublishMutation.mutate(audio.id)}
+                                disabled={unpublishMutation.isPending}
+                                title="Move back to staging"
+                                className="p-2 rounded-lg text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
+                              >
+                                <EyeOff className="w-4 h-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Move back to staging</TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => {
+                                  if (confirm('Are you sure you want to archive this audio?')) {
+                                    archiveMutation.mutate(audio.id);
+                                  }
+                                }}
+                                title="Archive audio"
+                                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                              >
+                                <Archive className="w-4 h-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Archive audio</TooltipContent>
+                          </Tooltip>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => unpublishMutation.mutate(audio.id)}
-                              disabled={unpublishMutation.isPending}
-                              className="p-2 rounded-lg text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
-                            >
-                              <EyeOff className="w-4 h-4" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Move back to staging</TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => {
-                                if (confirm('Are you sure you want to archive this audio?')) {
-                                  archiveMutation.mutate(audio.id);
-                                }
-                              }}
-                              className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                            >
-                              <Archive className="w-4 h-4" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Archive audio</TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </motion.div>
       ) : (
@@ -253,4 +366,3 @@ export function PublishedPage() {
     </div>
   );
 }
-

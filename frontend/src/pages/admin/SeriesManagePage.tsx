@@ -1,22 +1,25 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+    ArrowDown,
+    ArrowLeft,
+    ArrowUp,
+    Check,
+    Library,
+    Music,
+    Pause,
+    Play,
+    Plus,
+    Search,
+    Trash2,
+    Video,
+    X,
+} from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  ArrowLeft,
-  Library,
-  Music,
-  Plus,
-  Search,
-  Trash2,
-  X,
-  ArrowUp,
-  ArrowDown,
-  Video,
-  Check,
-} from 'lucide-react';
-import { seriesApi } from '../../lib/seriesApi';
 import { audioApi } from '../../lib/audioApi';
+import { seriesApi } from '../../lib/seriesApi';
+import { useAudioPlayback } from '../../lib/useAudioPlayback';
 import { isVideo, type Audio } from '../../types/audio';
 
 export function SeriesManagePage() {
@@ -27,6 +30,8 @@ export function SeriesManagePage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const { audioRef, playingAudioId, playAudio, isPlaying, currentTime, duration } = useAudioPlayback();
 
   const { data: series, isLoading } = useQuery({
     queryKey: ['series', id, 'admin'],
@@ -114,6 +119,21 @@ export function SeriesManagePage() {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleSeek = (time: number) => {
+    const media = audioRef.current;
+    if (!media || !Number.isFinite(time)) {
+      return;
+    }
+
+    media.currentTime = time;
+  };
+
   if (isLoading) {
     return (
       <div>
@@ -132,6 +152,8 @@ export function SeriesManagePage() {
 
   return (
     <div>
+      <video ref={audioRef as React.RefObject<HTMLVideoElement>} className="hidden" />
+
       <button
         onClick={() => navigate('/admin/series')}
         className="flex items-center gap-2 text-slate-500 hover:text-slate-900 mb-4 transition-colors"
@@ -185,6 +207,21 @@ export function SeriesManagePage() {
               <span className="w-8 text-center text-sm font-medium text-slate-400">
                 {index + 1}
               </span>
+              <button
+                onClick={() => playAudio({ id: audio.id })}
+                className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
+                  playingAudioId === audio.id && isPlaying
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-primary-100 hover:text-primary-600'
+                }`}
+                title={playingAudioId === audio.id && isPlaying ? `Pause ${audio.title}` : `Play ${audio.title}`}
+              >
+                {playingAudioId === audio.id && isPlaying ? (
+                  <Pause className="w-4 h-4" />
+                ) : (
+                  <Play className="w-4 h-4 ml-0.5" />
+                )}
+              </button>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-slate-900 truncate">{audio.title}</p>
                 <div className="flex items-center gap-3 text-sm text-slate-500">
@@ -192,6 +229,25 @@ export function SeriesManagePage() {
                   {audio.durationSeconds > 0 && <span>{formatDuration(audio.durationSeconds)}</span>}
                   <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100">{audio.status}</span>
                 </div>
+                {playingAudioId === audio.id && (
+                  <div className="mt-3 space-y-1.5">
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(duration || audio.durationSeconds || 0, 0)}
+                      step="0.1"
+                      value={Math.min(currentTime, duration || audio.durationSeconds || 0)}
+                      onChange={(event) => handleSeek(Number(event.target.value))}
+                      className="w-full h-1.5 appearance-none rounded-full bg-slate-200 accent-primary-600 cursor-pointer"
+                      aria-label={`Seek ${audio.title}`}
+                      disabled={(duration || audio.durationSeconds || 0) <= 0}
+                    />
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>{formatTime(currentTime)}</span>
+                      <span>{formatTime(duration || audio.durationSeconds || 0)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
               {isVideo(audio) && (
                 <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
@@ -251,7 +307,7 @@ export function SeriesManagePage() {
             >
               <div className="flex items-center justify-between p-6 border-b border-slate-100">
                 <h2 className="text-lg font-semibold text-slate-900">Add Audio to Series</h2>
-                <button onClick={() => setShowAddModal(false)}>
+                <button onClick={() => setShowAddModal(false)} title="Close add audio dialog">
                   <X className="w-5 h-5 text-slate-400" />
                 </button>
               </div>
