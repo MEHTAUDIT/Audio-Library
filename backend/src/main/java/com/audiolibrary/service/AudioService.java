@@ -5,7 +5,9 @@ import com.audiolibrary.dto.AudioUpdateRequest;
 import com.audiolibrary.dto.AudioUploadRequest;
 import com.audiolibrary.entity.*;
 import com.audiolibrary.repository.AudioRepository;
+import com.audiolibrary.repository.AudioSpeakerJoinRepository;
 import com.audiolibrary.repository.GenreRepository;
+import com.audiolibrary.repository.SpeakerRepository;
 import com.audiolibrary.repository.TagRepository;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
@@ -35,6 +37,8 @@ public class AudioService {
     private final AudioRepository audioRepository;
     private final GenreRepository genreRepository;
     private final TagRepository tagRepository;
+    private final SpeakerRepository speakerRepository;
+    private final AudioSpeakerJoinRepository audioSpeakerJoinRepository;
     /**
      * Create a new audio file in DRAFT status (legacy - metadata only)
      */
@@ -55,6 +59,14 @@ public class AudioService {
             audio.setMimeType(request.getMimeType());
             audio.setSizeBytes(request.getSizeBytes());
             audio.setStatus(Audio.Status.DRAFT);
+
+            if (request.getSpeakerId() != null) {
+                Speaker speaker = resolveSpeaker(tenantId, request.getSpeakerId());
+                attachSpeaker(audio, speaker);
+                audio.setSpeaker(speaker.getName());
+            } else {
+                audio.setSpeaker(request.getSpeaker());
+            }
 
             // Generate a placeholder S3 key and URL for now
             String s3Key = String.format("tenant/%s/audio/%s/%s", tenantId, UUID.randomUUID(), "audio.mp3");
@@ -77,11 +89,41 @@ public class AudioService {
      * Create a new audio file with actual file upload.
      * Checks for duplicates using file hash before saving.
      */
+        @Transactional
+        public AudioResponse createDraftWithFile(
+            String title,
+            String description,
+            String speaker,
+            String category,
+            String storageKey,
+            String originalFilename,
+            long sizeBytes,
+            String mimeType,
+            long durationSeconds,
+            UUID tenantId,
+            String fileHash) {
+        return createDraftWithFile(
+            title,
+            description,
+            speaker,
+            null,
+            category,
+            storageKey,
+            originalFilename,
+            sizeBytes,
+            mimeType,
+            durationSeconds,
+            tenantId,
+            fileHash
+        );
+        }
+
     @Transactional
     public AudioResponse createDraftWithFile(
             String title,
             String description,
             String speaker,
+            UUID speakerId,
             String category,
             String storageKey,
             String originalFilename,
@@ -108,7 +150,13 @@ public class AudioService {
         audio.setTenantId(tenantId);
         audio.setTitle(title);
         audio.setDescription(description);
-        audio.setSpeaker(speaker);
+        if (speakerId != null) {
+            Speaker resolvedSpeaker = resolveSpeaker(tenantId, speakerId);
+            attachSpeaker(audio, resolvedSpeaker);
+            audio.setSpeaker(resolvedSpeaker.getName());
+        } else {
+            audio.setSpeaker(speaker);
+        }
         audio.setTopic(category);
         audio.setLanguage("en");
         audio.setDurationSeconds(durationSeconds);
@@ -150,9 +198,9 @@ public class AudioService {
     public List<AudioResponse> getAllAudio(Audio.Status status) {
         List<Audio> audioList;
         if (status != null) {
-            audioList = audioRepository.findByStatusAndDeletedAtIsNull(status);
+            audioList = audioRepository.findAllWithSpeakersByStatusAndDeletedAtIsNull(status);
         } else {
-            audioList = audioRepository.findByDeletedAtIsNull();
+            audioList = audioRepository.findAllWithSpeakersByDeletedAtIsNull();
         }
         return audioList.stream()
                 .map(AudioResponse::fromEntity)
@@ -243,7 +291,7 @@ public class AudioService {
      */
     @Transactional(readOnly = true)
     public AudioResponse getAudioById(UUID id) {
-        Audio audio = audioRepository.findById(id)
+        Audio audio = audioRepository.findByIdWithSpeakers(id)
                 .orElseThrow(() -> new RuntimeException("Audio not found: " + id));
         return AudioResponse.fromEntity(audio);
     }
@@ -251,6 +299,7 @@ public class AudioService {
     /**
      * Get all draft (staging) audio
      */
+    @Transactional
     public List<AudioResponse> getStagingAudio() {
         return getAllAudio(Audio.Status.DRAFT);
     }
@@ -279,6 +328,17 @@ public class AudioService {
         if (request.getSpeaker() != null) {
             audio.setSpeaker(request.getSpeaker());
         }
+        if (request.getSpeakerId() != null) {
+            Speaker speaker = resolveSpeaker(audio.getTenantId(), request.getSpeakerId());
+            replaceSpeakers(audio, List.of(speaker));
+            audio.setSpeaker(speaker.getName());
+        } else if (request.getSpeakerIds() != null) {
+            List<Speaker> speakers = request.getSpeakerIds().stream()
+                    .map(speakerId -> resolveSpeaker(audio.getTenantId(), speakerId))
+                    .toList();
+            replaceSpeakers(audio, speakers);
+            audio.setSpeaker(speakers.stream().map(Speaker::getName).collect(Collectors.joining(", ")));
+        }
         if (request.getTopic() != null) {
             audio.setTopic(request.getTopic());
         }
@@ -297,6 +357,43 @@ public class AudioService {
         log.info("Updated audio: {}", saved.getId());
 
         return AudioResponse.fromEntity(saved);
+    }
+
+    private Speaker resolveSpeaker(UUID tenantId, UUID speakerId) {
+        Speaker speaker = speakerRepository.findActiveById(speakerId)
+                .orElseThrow(() -> new RuntimeException("Speaker not found: " + speakerId));
+
+        if (!tenantId.equals(speaker.getTenantId())) {
+            throw new RuntimeException("Speaker not found: " + speakerId);
+        }
+
+        return speaker;
+    }
+
+    private void attachSpeaker(Audio audio, Speaker speaker) {
+        AudioSpeakerJoin join = new AudioSpeakerJoin();
+        join.setId(new AudioSpeakerJoinId(audio.getId(), speaker.getId()));
+        join.setAudio(audio);
+        join.setSpeaker(speaker);
+        join.setRole(AudioSpeakerJoin.Role.SPEAKER);
+        join.setDisplayOrder(0);
+        audio.getAudioSpeakers().add(join);
+    }
+
+    private void replaceSpeakers(Audio audio, List<Speaker> speakers) {
+        audioSpeakerJoinRepository.deleteAllByAudioId(audio.getId());
+        audio.getAudioSpeakers().clear();
+
+        for (int i = 0; i < speakers.size(); i++) {
+            Speaker speaker = speakers.get(i);
+            AudioSpeakerJoin join = new AudioSpeakerJoin();
+            join.setId(new AudioSpeakerJoinId(audio.getId(), speaker.getId()));
+            join.setAudio(audio);
+            join.setSpeaker(speaker);
+            join.setRole(AudioSpeakerJoin.Role.SPEAKER);
+            join.setDisplayOrder(i);
+            audio.getAudioSpeakers().add(join);
+        }
     }
 
     /**

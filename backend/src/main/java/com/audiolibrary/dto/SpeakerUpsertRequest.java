@@ -1,5 +1,7 @@
 package com.audiolibrary.dto;
 
+import lombok.Data;
+
 @Data
 public class SpeakerUpsertRequest {
     private String name;

@@ -18,6 +18,33 @@ import java.util.UUID;
 @Repository
 public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecificationExecutor<Audio> {
 
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    LEFT JOIN FETCH a.audioSpeakers asp
+    LEFT JOIN FETCH asp.speaker
+    WHERE a.deletedAt IS NULL
+    """)
+    List<Audio> findAllWithSpeakersByDeletedAtIsNull();
+
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    LEFT JOIN FETCH a.audioSpeakers asp
+    LEFT JOIN FETCH asp.speaker
+    WHERE a.status = :status AND a.deletedAt IS NULL
+    """)
+    List<Audio> findAllWithSpeakersByStatusAndDeletedAtIsNull(@Param("status") Audio.Status status);
+
+    @Query("""
+    SELECT DISTINCT a
+    FROM Audio a
+    LEFT JOIN FETCH a.audioSpeakers asp
+    LEFT JOIN FETCH asp.speaker
+    WHERE a.id = :id
+    """)
+    Optional<Audio> findByIdWithSpeakers(@Param("id") UUID id);
+
     List<Audio> findByDeletedAtIsNull();
 
     List<Audio> findByStatusAndDeletedAtIsNull(Audio.Status status);

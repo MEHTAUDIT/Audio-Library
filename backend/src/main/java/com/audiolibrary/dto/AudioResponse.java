@@ -1,6 +1,7 @@
 package com.audiolibrary.dto;
 
 import com.audiolibrary.entity.Audio;
+import com.audiolibrary.entity.AudioSpeakerJoin;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -57,8 +58,21 @@ public class AudioResponse {
                 .publishedAt(audio.getPublishedAt())
                 .createdAt(audio.getCreatedAt())
                 .updatedAt(audio.getUpdatedAt())
+                .speakers(audio.getAudioSpeakers() != null
+                    ? audio.getAudioSpeakers().stream()
+                        .map(AudioResponse::fromJoin)
+                        .toList()
+                    : null)
                 .build();
     }
+
+            private static SpeakerResponse fromJoin(AudioSpeakerJoin join) {
+            return SpeakerResponse.builder()
+                .id(join.getSpeaker().getId())
+                .name(join.getSpeaker().getName())
+                .avatarUrl(join.getSpeaker().getAvatarUrl())
+                .build();
+            }
 
     @Data
     @Builder

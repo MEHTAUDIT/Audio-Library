@@ -1,11 +1,5 @@
 package com.audiolibrary.service;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
-
 import com.audiolibrary.config.TenantContext;
 import com.audiolibrary.dto.AudioResponse;
 import com.audiolibrary.dto.SpeakerUpsertRequest;
@@ -18,6 +12,20 @@ import com.audiolibrary.repository.AudioRepository;
 import com.audiolibrary.repository.AudioSpeakerJoinRepository;
 import com.audiolibrary.repository.SpeakerRepository;
 import com.audiolibrary.repository.UserFavoriteSpeakerJoinRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor

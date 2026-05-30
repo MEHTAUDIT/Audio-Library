@@ -161,6 +161,8 @@ public class AudioController {
             @RequestPart(value = "description", required = false) String description,
             @Parameter(description = "Speaker name (optional)")
             @RequestPart(value = "speaker", required = false) String speaker,
+            @Parameter(description = "Existing speaker UUID (optional)")
+            @RequestPart(value = "speakerId", required = false) String speakerId,
             @Parameter(description = "Category (optional)")
             @RequestPart(value = "category", required = false) String category,
             @Parameter(description = "Tenant subdomain (e.g., 'demo')")
@@ -186,6 +188,7 @@ public class AudioController {
                     title,
                     description,
                     speaker,
+                    speakerId != null && !speakerId.isBlank() ? UUID.fromString(speakerId) : null,
                     category,
                     storageKey,
                     file.getOriginalFilename(),

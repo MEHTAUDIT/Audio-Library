@@ -63,6 +63,7 @@ export interface AudioUploadRequest {
   title: string;
   description: string;
   speaker: string;
+  speakerId?: string;
   topic: string;
   language?: string;
   durationSeconds?: number;
@@ -74,6 +75,7 @@ export interface AudioUpdateRequest {
   title?: string;
   description?: string;
   speaker?: string;
+  speakerId?: string;
   topic?: string;
   language?: string;
   genreIds?: string[];
