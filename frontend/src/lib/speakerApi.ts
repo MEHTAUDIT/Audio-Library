@@ -2,6 +2,7 @@ import { api } from './api';
 import type {
   SpeakerProfileApiResponse,
   SpeakerProfileResponse,
+  SpeakerSummary,
   SpeakerUpsertRequest,
 } from '../types/speaker';
 
@@ -18,6 +19,12 @@ const mapSpeakerProfileResponse = (response: SpeakerProfileApiResponse): Speaker
 };
 
 export const speakerApi = {
+  listSpeakers: async (query?: string, signal?: AbortSignal): Promise<SpeakerSummary[]> => {
+    const params = query?.trim() ? { query: query.trim() } : {};
+    const response = await api.get<SpeakerSummary[]>('/speaker', { params, signal });
+    return response.data;
+  },
+
   getSpeakerProfile: async (speakerId: string): Promise<SpeakerProfileResponse> => {
     const response = await api.get<SpeakerProfileApiResponse>(`/speaker/${encodeURIComponent(speakerId)}`); // encoded URI component that will auto decoded by spring at backend...
     return mapSpeakerProfileResponse(response.data);

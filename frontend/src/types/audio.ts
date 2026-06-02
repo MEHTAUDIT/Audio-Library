@@ -4,8 +4,31 @@ export type AudioStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 export type MediaType = 'AUDIO' | 'VIDEO';
 
 /** Check if a media item is video based on mediaType or mimeType fallback */
-export function isVideo(media: { mediaType?: MediaType; mimeType?: string }): boolean {
-  return media.mediaType === 'VIDEO' || (media.mimeType?.startsWith('video/') ?? false);
+export function isVideo(media: {
+  mediaType?: MediaType | string | null;
+  mimeType?: string | null;
+  originalFilename?: string | null;
+  storageKey?: string | null;
+  url?: string | null;
+  title?: string | null;
+}): boolean {
+  const normalizedMediaType = String(media.mediaType ?? '').toUpperCase();
+  if (normalizedMediaType === 'VIDEO') {
+    return true;
+  }
+
+  const normalizedMimeType = String(media.mimeType ?? '').toLowerCase();
+  if (normalizedMimeType.startsWith('video/')) {
+    return true;
+  }
+
+  const filenameHints = [media.originalFilename, media.storageKey, media.url, media.title]
+    .filter((value): value is string => Boolean(value))
+    .join(' ')
+    .toLowerCase();
+
+  return /\.(mp4|mov|m4v|mkv|avi|webm|wmv|flv|3gp|mts|m2ts)(\?|#|$)/.test(filenameHints) ||
+    /\b(mp4|mov|m4v|mkv|avi|webm|wmv|flv|3gp|mts|m2ts)\b/.test(filenameHints);
 }
 
 export interface Audio {

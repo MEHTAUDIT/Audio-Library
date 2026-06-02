@@ -16,31 +16,34 @@ import {
   User,
   X
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
+import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
 import { audioApi } from '../../lib/audioApi';
+import { seriesApi } from '../../lib/seriesApi';
+import { useAudioPlayback } from '../../lib/useAudioPlayback';
 import type { Audio, AudioUpdateRequest } from '../../types/audio';
-import { isVideo } from '../../types/audio'; 
-import { seriesApi } from '../../lib/seriesApi'; 
-import { api } from '../../lib/api';
 export function StagingPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<AudioUpdateRequest>({});
-
-  // Fetch all series for the dropdown
   const { data: allSeries } = useQuery({
     queryKey: ['series'],
     queryFn: seriesApi.getAll,
   });
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLMediaElement>(null); 
-  // for progress bar [audio]
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const {
+    audioRef,
+    playingAudioId,
+    playAudio,
+    currentTime,
+    duration,
+    isPlaying,
+    setCurrentTime,
+    stop,
+  } = useAudioPlayback();
 
   const { data: stagingAudio, isLoading } = useQuery({
     queryKey: ['stagingAudio'],
@@ -98,38 +101,10 @@ export function StagingPage() {
       description: audio.description,
       speaker: audio.speaker,
       topic: audio.topic,
-      seriesId: audio.seriesId || undefined,  // ADDED
+      seriesId: audio.seriesId || undefined,
     });
   };
-
-  const togglePlay = async (audio: Audio) => {
-    const audioElement = audioRef.current;
-    if (!audioElement) return;
-
-    if (playingId === audio.id) {
-      audioElement.pause();
-      setPlayingId(null);
-    } else {
-      try {
-        const response = await api.get(
-          `/audio/${audio.id}/stream`,
-          {
-            responseType: "blob",
-          }
-        );
-
-        const audioUrl = URL.createObjectURL(response.data);
-
-        audioElement.src = audioUrl;
-        await audioElement.play();
-
-        setPlayingId(audio.id);
-      } catch (error) {
-        console.error("Audio playback error:", error);
-      }
-    }
-  };
-
+  
   const saveEdit = (id: string) => {
     updateMutation.mutate({ id, data: editForm });
   };
@@ -142,29 +117,6 @@ export function StagingPage() {
       .toString()
       .padStart(2, "0")}`;
   };
-  // Listen to audio events and update current time/duration for progress bar
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const updateTime = () => {
-      setCurrentTime(audio.currentTime);
-    };
-
-    const loadMetadata = () => {
-      setDuration(audio.duration);
-    };
-
-    audio.addEventListener("timeupdate", updateTime);
-    audio.addEventListener("loadedmetadata", loadMetadata);
-
-    return () => {
-      audio.removeEventListener("timeupdate", updateTime);
-      audio.removeEventListener("loadedmetadata", loadMetadata);
-    };
-  }, []);
-
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -288,7 +240,6 @@ export function StagingPage() {
                             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm resize-none"
                           />
                         </div>
-                        {/* ADDED: Series dropdown */}
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">
                             Series
@@ -301,8 +252,10 @@ export function StagingPage() {
                             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
                           >
                             <option value="">No series</option>
-                            {allSeries?.map((s) => (
-                              <option key={s.id} value={s.id}>{s.name}</option>
+                            {allSeries?.map((series) => (
+                              <option key={series.id} value={series.id}>
+                                {series.name}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -332,11 +285,11 @@ export function StagingPage() {
                       <div className="flex items-start gap-4">
                         {/* Play Button */}
                         <button
-                          onClick={() => togglePlay(audio)}
+                          onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}
                           className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-amber-200 hover:scale-105 transition-transform"
-                          title={playingId === audio.id ? 'Pause' : 'Preview audio'}
+                          title={playingAudioId === audio.id && isPlaying ? 'Pause' : 'Preview audio'}
                         >
-                          {playingId === audio.id ? (
+                          {playingAudioId === audio.id && isPlaying ? (
                             <Pause className="w-7 h-7 text-white" />
                           ) : (
                             <Play className="w-7 h-7 text-white ml-1" />
@@ -365,7 +318,7 @@ export function StagingPage() {
                                 )}
                                 <span className="flex items-center gap-1">
                                   <Play className="w-3.5 h-3.5" />
-                                  {playingId === audio.id
+                                  {playingAudioId === audio.id
                                   ? formatTime(duration)
                                   : formatTime(audio.durationSeconds)}
                                 </span>
@@ -380,7 +333,7 @@ export function StagingPage() {
                             </p>
                           )}
                           {/* Progress Bar */}
-                          {playingId === audio.id && (
+                          {playingAudioId === audio.id && (
                             <>
                               <input
                                 type="range"
@@ -483,20 +436,12 @@ export function StagingPage() {
         </motion.div>
       )}
 
-      {/* CHANGED: Use <video> element which handles both audio + video playback.
-          Visible with controls when playing a video file; hidden for audio files. */}
-      {(() => {
-        const playingItem = stagingAudio?.find(a => a.id === playingId);
-        const showVideo = playingItem && isVideo(playingItem);
-        return (
-          <video
-            ref={audioRef as React.RefObject<HTMLVideoElement>}
-            className={showVideo ? "max-w-md rounded-lg mx-auto mt-4" : "hidden"}
-            controls={!!showVideo}
-            onEnded={() => setPlayingId(null)}
-          />
-        );
-      })()}
+      <FloatingMediaPlayer
+        mediaRef={audioRef}
+        media={stagingAudio?.find((audio) => audio.id === playingAudioId)}
+        onClose={stop}
+        onEnded={stop}
+      />
     </div>
   );
 }

@@ -208,7 +208,7 @@ export function SeriesManagePage() {
                 {index + 1}
               </span>
               <button
-                onClick={() => playAudio({ id: audio.id })}
+                onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}
                 className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
                   playingAudioId === audio.id && isPlaying
                     ? 'bg-primary-600 text-white'

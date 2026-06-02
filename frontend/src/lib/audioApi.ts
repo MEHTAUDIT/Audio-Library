@@ -6,7 +6,10 @@ export interface AudioUploadData {
   title: string;
   description?: string;
   speaker?: string;
+  speakerId?: string;
   category?: string;
+  mimeType?: string;
+  sizeBytes?: number;
 }
 
 export const audioApi = {
@@ -65,7 +68,10 @@ export const audioApi = {
     formData.append('title', data.title);
     if (data.description) formData.append('description', data.description);
     if (data.speaker) formData.append('speaker', data.speaker);
+    if (data.speakerId) formData.append('speakerId', data.speakerId);
     if (data.category) formData.append('category', data.category);
+    if (data.mimeType) formData.append('mimeType', data.mimeType);
+    if (typeof data.sizeBytes === 'number') formData.append('sizeBytes', String(data.sizeBytes));
 
     const response = await api.post<Audio>('/audio', formData, {
       headers: {

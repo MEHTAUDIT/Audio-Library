@@ -35,6 +35,11 @@ public class SchemaMultiTenantConnectionProvider implements MultiTenantConnectio
         try {
             connection.setSchema(normalizeSchemaName(tenantIdentifier));
         } catch (SQLException e) {
+            try {
+                connection.close();
+            } catch (SQLException closeException) {
+                e.addSuppressed(closeException);
+            }
             throw new RuntimeException("Could not switch to schema: " + tenantIdentifier, e);
         }
         return connection;

@@ -1,9 +1,10 @@
-import { CalendarDays, Clock, Music2, Pause, Play, Volume2 } from 'lucide-react';
+import { CalendarDays, Clock, Music2, Pause, Play, Video, Volume2 } from 'lucide-react';
 import React from 'react';
 import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
 import { cn } from '../../lib/utils';
 import type { Audio } from '../../types/audio';
+import { isVideo } from '../../types/audio';
 
 interface SpeakerAudioCardProps {
   audio: Audio;
@@ -25,7 +26,11 @@ const formatDuration = (seconds: number) => {
   return `${totalMinutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 };
 
-const formatDate = (value: string) => {
+const formatDate = (value: string | null) => {
+  if (!value) {
+    return 'Not published';
+  }
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
@@ -40,6 +45,7 @@ const formatDate = (value: string) => {
 
 export function SpeakerAudioCard({ audio, isPlaying, onPlay, onNavigate }: SpeakerAudioCardProps) {
   const handleNavigate = () => onNavigate(audio.id);
+  const video = isVideo(audio);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -61,7 +67,11 @@ export function SpeakerAudioCard({ audio, isPlaying, onPlay, onNavigate }: Speak
       <div className="relative aspect-[16/10] overflow-hidden bg-gradient-to-br from-primary-600 via-accent-500 to-primary-700">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.22),_transparent_42%),radial-gradient(circle_at_bottom_left,_rgba(255,255,255,0.12),_transparent_28%)]" />
         <div className="absolute inset-0 flex items-center justify-center">
-          <Music2 className="h-14 w-14 text-white/25" />
+          {video ? (
+            <Video className="h-14 w-14 text-white/25" />
+          ) : (
+            <Music2 className="h-14 w-14 text-white/25" />
+          )}
         </div>
 
         <button
@@ -90,6 +100,11 @@ export function SpeakerAudioCard({ audio, isPlaying, onPlay, onNavigate }: Speak
           <Badge variant="outline" className="border-white/30 bg-white/90 text-slate-800">
             {audio.language}
           </Badge>
+          {video && (
+            <Badge variant="outline" className="border-white/30 bg-white/90 text-slate-800">
+              Video
+            </Badge>
+          )}
         </div>
 
         {isPlaying && (

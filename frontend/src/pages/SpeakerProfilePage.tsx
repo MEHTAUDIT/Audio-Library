@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, ExternalLink, Music2, RefreshCcw } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { FloatingMediaPlayer } from '../components/audio/FloatingMediaPlayer';
 import { SpeakerAudioCard, SpeakerAudioCardSkeleton } from '../components/audio/SpeakerAudioCard';
 import { Badge } from '../components/ui/Badge';
 import { Card, CardContent } from '../components/ui/Card';
@@ -152,8 +153,11 @@ export function SpeakerProfilePage() {
   const queryClient = useQueryClient();
   const { speakerId } = useParams<{ speakerId: string }>();
   const [avatarError, setAvatarError] = useState(false);
+  const [activeMedia, setActiveMedia] = useState<Audio | null>(null);
 
-  const { audioRef, playingAudioId, playAudio } = useAudioPlayback();
+  const { mediaRef, playingAudioId, playAudio, stop } = useAudioPlayback({
+    onEnded: () => setActiveMedia(null),
+  });
 
   const speakerQuery = useQuery<SpeakerProfileResponse>({
     queryKey: ['speakerProfile', speakerId],
@@ -197,7 +201,16 @@ export function SpeakerProfilePage() {
   };
 
   const handlePlayAudio = async (audio: Audio) => {
-    await playAudio({ id: audio.id }, { restart: true });
+    setActiveMedia(audio);
+    await playAudio(
+      { id: audio.id, mimeType: audio.mimeType },
+      { restart: playingAudioId !== audio.id }
+    );
+  };
+
+  const handleClosePlayer = () => {
+    stop();
+    setActiveMedia(null);
   };
 
   if (speakerQuery.isLoading) {
@@ -222,7 +235,12 @@ export function SpeakerProfilePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
-      <audio ref={audioRef} className="hidden" preload="metadata" />
+      <FloatingMediaPlayer
+        mediaRef={mediaRef}
+        media={activeMedia}
+        onClose={handleClosePlayer}
+        onEnded={() => setActiveMedia(null)}
+      />
 
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl shadow-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
@@ -344,7 +362,7 @@ export function SpeakerProfilePage() {
                     audio={audio}
                     isPlaying={playingAudioId === audio.id}
                     onPlay={handlePlayAudio}
-                    onNavigate={(audioId) => navigate(`/audio/${audioId}`)}
+                    onNavigate={(audioId) => navigate(`/library/${audioId}`)}
                   />
                 ))}
               </div>

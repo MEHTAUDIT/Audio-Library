@@ -64,6 +64,7 @@ export function SettingsPage() {
       return speakerApi.updateSpeaker(speakerId, payload);
     },
     onSuccess: (speaker) => {
+      queryClient.invalidateQueries({ queryKey: ['speakers'] });
       queryClient.invalidateQueries({ queryKey: ['speakerProfile', speaker.id] });
       setSuccessMessage(
         speakerMode === 'create'
@@ -327,7 +328,7 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4 text-sm leading-6 text-slate-600">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">PUT /api/v1/speaker/{speaker_Id}</p>
+                <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">PUT /api/v1/speaker/{'{'}speaker_Id{'}'}</p>
                 <p className="mt-2 text-slate-700">Update an existing speaker in the current tenant by ID.</p>
               </div>
               <div>

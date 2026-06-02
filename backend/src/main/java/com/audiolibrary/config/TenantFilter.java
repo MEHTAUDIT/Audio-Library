@@ -101,6 +101,9 @@ public class TenantFilter extends OncePerRequestFilter {
                 }
 
                 TenantContext.setCurrentTenant(schemaName);
+                request.setAttribute("tenantId", resolvedTenant.getId());
+                request.setAttribute("tenantSchema", schemaName);
+                request.setAttribute("tenantSubdomain", resolvedTenant.getSubdomain());
             } else {
                 // If tenant doesn't exist yet (or missing schemaName), in local we can fall back to using tenantKey directly
                 // but generally we keep public schema unless explicitly known.

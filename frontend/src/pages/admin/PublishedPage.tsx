@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
@@ -36,6 +37,7 @@ export function PublishedPage() {
     isPlaying,
     currentTime,
     duration,
+    setCurrentTime,
     stop,
   } = useAudioPlayback();
 
@@ -106,17 +108,19 @@ export function PublishedPage() {
   return (
     <div className="space-y-6">
       {/* ADDED: Hidden media element for playback — handles both audio + video */}
-      {(() => {
+      <FloatingMediaPlayer
+        mediaRef={audioRef}
+        media={publishedAudio?.find((audio) => audio.id === playingAudioId)}
+        onClose={stop}
+        onEnded={stop}
+      />
+      {false && (() => {
         const playingItem = publishedAudio?.find(a => a.id === playingAudioId);
-        const showVideo = playingItem && isVideo(playingItem);
+        const showVideo = false;
         return (
           <>
-            <video
-              ref={audioRef as React.RefObject<HTMLVideoElement>}
-              className="hidden"
-            />
-            {showVideo && (
-              <div className="fixed bottom-6 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10">
+            <div className={showVideo ? 'fixed bottom-6 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10' : 'hidden'}>
+              {showVideo && (
                 <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900">
                   <span className="text-white text-xs font-medium truncate max-w-[200px]">
                     {playingItem?.title}
@@ -126,14 +130,15 @@ export function PublishedPage() {
                     className="text-white/60 hover:text-white ml-2 text-lg leading-none"
                   >×</button>
                 </div>
-                <video
-                  src={(audioRef.current as HTMLVideoElement)?.src}
-                  className="w-80 max-h-48"
-                  controls
-                  autoPlay
-                />
-              </div>
-            )}
+              )}
+              <video
+                ref={audioRef as React.RefObject<HTMLVideoElement>}
+                className="w-80 max-h-48"
+                controls
+                autoPlay
+                onEnded={stop}
+              />
+            </div>
           </>
         );
       })()}
@@ -223,7 +228,7 @@ export function PublishedPage() {
                       <div className="flex items-start gap-4">
                         {/* CHANGED: Play button — was static icon, now functional */}
                         <button
-                          onClick={() => playAudio({ id: audio.id })}
+                          onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}
                           className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg transition-all hover:scale-105 ${
                             isCurrentlyPlaying
                               ? 'bg-gradient-to-br from-emerald-500 to-green-600 shadow-emerald-300'

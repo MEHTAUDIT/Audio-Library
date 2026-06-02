@@ -144,26 +144,26 @@ export function AudioDetailPage() {
   }, [isAuthenticated, id]);
 
   const togglePlay = async () => {
-    const audio = audioRef.current;
-    if (!audio || !id) return;
+    const media = audioRef.current;
+    if (!media || !id) return;
 
     try {
       // pause if already playing
-      if (!audio.paused) {
-        audio.pause();
+      if (!media.paused) {
+        media.pause();
         setIsPlaying(false);
 
         if (isAuthenticated) {
           userLibraryApi.updatePlaybackPosition(
             id,
-            Math.floor(audio.currentTime)
+            Math.floor(media.currentTime)
           );
         }
         return;
       }
 
       // if source not loaded yet
-      if (!audio.src) {
+      if (!media.src) {
         const response = await api.get(
           `/audio/${id}/stream`,
           {
@@ -171,12 +171,18 @@ export function AudioDetailPage() {
           }
         );
 
-        const audioUrl = URL.createObjectURL(response.data);
-        audio.src = audioUrl;
-        audio.load();
+        const streamedBlob = response.data as Blob;
+        const normalizedBlob =
+          (!streamedBlob.type || streamedBlob.type === 'application/octet-stream') && audio?.mimeType
+            ? new Blob([streamedBlob], { type: audio.mimeType })
+            : streamedBlob;
+
+        const audioUrl = URL.createObjectURL(normalizedBlob);
+        media.src = audioUrl;
+        media.load();
       }
 
-      await audio.play();
+      await media.play();
       setIsPlaying(true);
     } catch (error) {
       console.error("Audio playback error:", error);

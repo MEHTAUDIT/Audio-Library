@@ -32,6 +32,7 @@ import {
 import { audioApi } from '../../lib/audioApi';
 import { api } from '../../lib/api';
 import { s3Api, type UploadProgress as S3UploadProgress, isDuplicateError, parseDuplicateMessage, splitDuplicatesAndErrors } from '../../lib/s3Api';
+import { isMediaFilename } from '../../lib/mediaTypes';
 import type {
   DetectedStructure,
   FolderStructureMapping,
@@ -107,10 +108,8 @@ export function BulkUploadPage() {
       return;
     }
 
-    // Filter to audio files only
-    const audioFiles = selectedFiles.filter(f => 
-      /\.(mp3|wav|ogg|m4a|flac|aac|wma|mp4|mkv|avi|mov|webm|wmv|m4v)$/i.test(f.name) // CHANGED: added video formats
-    );
+    // Filter to supported audio/video files only
+    const audioFiles = selectedFiles.filter(f => isMediaFilename(f.name));
 
     if (audioFiles.length === 0) {
       alert('No audio files found in the selected folder.');

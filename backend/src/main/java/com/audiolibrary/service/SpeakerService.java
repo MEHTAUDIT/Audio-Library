@@ -15,7 +15,9 @@ import com.audiolibrary.repository.UserFavoriteSpeakerJoinRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -87,6 +89,26 @@ public class SpeakerService {
     @Transactional(readOnly = true)
     public Page<Speaker> searchSpeakers(UUID tenantId, String query, Pageable pageable) {
         return speakerRepository.searchByName(tenantId, query, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AudioResponse.SpeakerResponse> listSpeakerSummaries(UUID tenantId, String query) {
+        List<Speaker> speakers;
+        if (StringUtils.hasText(query)) {
+            speakers = speakerRepository
+                    .searchByName(tenantId, query.trim(), PageRequest.of(0, 10, Sort.by("name").ascending()))
+                    .getContent();
+        } else {
+            speakers = speakerRepository.findAllActiveByTenantId(tenantId);
+        }
+
+        return speakers.stream()
+                .map(speaker -> AudioResponse.SpeakerResponse.builder()
+                        .id(speaker.getId())
+                        .name(speaker.getName())
+                        .avatarUrl(speaker.getAvatarUrl())
+                        .build())
+                .toList();
     }
 
     /**

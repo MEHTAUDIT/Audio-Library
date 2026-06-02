@@ -76,7 +76,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   }, [options.onEnded, revokeObjectUrl]);
 
   const playAudio = useCallback(
-    async (audioItem: Pick<Audio, 'id'>, playbackOptions: StreamPlaybackOptions = {}) => {
+    async (audioItem: Pick<Audio, 'id'> & { mimeType?: string }, playbackOptions: StreamPlaybackOptions = {}) => {
       const audio = mediaRef.current;
       if (!audio) return;
 
@@ -99,7 +99,13 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
           responseType: 'blob',
         });
 
-        const audioUrl = URL.createObjectURL(response.data);
+        const streamedBlob = response.data as Blob;
+        const normalizedBlob =
+          (!streamedBlob.type || streamedBlob.type === 'application/octet-stream') && audioItem.mimeType
+            ? new Blob([streamedBlob], { type: audioItem.mimeType })
+            : streamedBlob;
+
+        const audioUrl = URL.createObjectURL(normalizedBlob);
         objectUrlRef.current = audioUrl;
 
         audio.src = audioUrl;

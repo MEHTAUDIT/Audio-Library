@@ -60,10 +60,10 @@ public class AudioService {
             audio.setSizeBytes(request.getSizeBytes());
             audio.setStatus(Audio.Status.DRAFT);
 
+            Speaker resolvedSpeaker = null;
             if (request.getSpeakerId() != null) {
-                Speaker speaker = resolveSpeaker(tenantId, request.getSpeakerId());
-                attachSpeaker(audio, speaker);
-                audio.setSpeaker(speaker.getName());
+                resolvedSpeaker = resolveSpeaker(tenantId, request.getSpeakerId());
+                audio.setSpeaker(resolvedSpeaker.getName());
             } else {
                 audio.setSpeaker(request.getSpeaker());
             }
@@ -74,6 +74,10 @@ public class AudioService {
             audio.setUrl("/api/v1/audio/" + UUID.randomUUID() + "/stream");
 
             Audio saved = audioRepository.save(audio);
+            if (resolvedSpeaker != null) {
+                replaceSpeakers(saved, List.of(resolvedSpeaker));
+                saved = audioRepository.findByIdWithSpeakers(saved.getId()).orElse(saved);
+            }
             log.info("Created draft audio: id={} title='{}' tenant={} size={}bytes duration={}s",
                     saved.getId(), saved.getTitle(), tenantId, saved.getSizeBytes(), saved.getDurationSeconds());
 
@@ -150,9 +154,9 @@ public class AudioService {
         audio.setTenantId(tenantId);
         audio.setTitle(title);
         audio.setDescription(description);
+        Speaker resolvedSpeaker = null;
         if (speakerId != null) {
-            Speaker resolvedSpeaker = resolveSpeaker(tenantId, speakerId);
-            attachSpeaker(audio, resolvedSpeaker);
+            resolvedSpeaker = resolveSpeaker(tenantId, speakerId);
             audio.setSpeaker(resolvedSpeaker.getName());
         } else {
             audio.setSpeaker(speaker);
@@ -177,6 +181,11 @@ public class AudioService {
         Audio saved = audioRepository.save(audio);
         saved.setUrl("/api/v1/audio/" + saved.getId() + "/stream");
         saved = audioRepository.save(saved);
+
+        if (resolvedSpeaker != null) {
+            replaceSpeakers(saved, List.of(resolvedSpeaker));
+            saved = audioRepository.findByIdWithSpeakers(saved.getId()).orElse(saved);
+        }
 
         log.info("Created draft audio with file: {} for tenant: {}", saved.getId(), tenantId);
 
@@ -381,6 +390,10 @@ public class AudioService {
     }
 
     private void replaceSpeakers(Audio audio, List<Speaker> speakers) {
+        if (audio.getId() == null) {
+            throw new IllegalStateException("Audio must be saved before speakers can be linked");
+        }
+
         audioSpeakerJoinRepository.deleteAllByAudioId(audio.getId());
         audio.getAudioSpeakers().clear();
 
@@ -392,7 +405,8 @@ public class AudioService {
             join.setSpeaker(speaker);
             join.setRole(AudioSpeakerJoin.Role.SPEAKER);
             join.setDisplayOrder(i);
-            audio.getAudioSpeakers().add(join);
+            AudioSpeakerJoin savedJoin = audioSpeakerJoinRepository.save(join);
+            audio.getAudioSpeakers().add(savedJoin);
         }
     }
 
