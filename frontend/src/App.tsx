@@ -12,6 +12,7 @@ import { PublishedPage } from './pages/admin/PublishedPage';
 import { StagingPage } from './pages/admin/StagingPage';
 import { SeriesListPage } from './pages/admin/SeriesListPage';
 import { SeriesManagePage } from './pages/admin/SeriesManagePage';
+import { SpeakersPage } from './pages/admin/SpeakersPage';
 import { SettingsPage } from './pages/admin/SettingsPage';
 import { SeriesDetailPage } from './pages/library/SeriesDetailPage';
 import { UploadPage } from './pages/admin/UploadPage';
@@ -146,6 +147,15 @@ function AppRoutes() {
           </AdminRoute>
         }
       />
+      <Route
+        path="/admin/speakers"
+        element={
+          <AdminRoute>
+            <SpeakersPage />
+          </AdminRoute>
+        }
+      />
+      <Route path="/admin/speaker" element={<Navigate to="/admin/speakers" replace />} />
       {/* Series management */}
       <Route
         path="/admin/series"
