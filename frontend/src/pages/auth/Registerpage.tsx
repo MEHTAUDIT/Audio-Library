@@ -63,7 +63,7 @@ export const RegisterPage = () => {
           { headers: { 'X-Tenant-ID': variables.subdomain } }
         );
         setAuthLandingPath('/admin');
-        login(authResp.data.token);
+        login(authResp.data.token, variables.subdomain);
         navigate('/admin', { replace: true });
       } catch (e: any) {
         alert("Registration successful, but auto-login failed. Please login manually.");
@@ -93,7 +93,7 @@ export const RegisterPage = () => {
     },
     onSuccess: (response) => {
       setAuthLandingPath('/library');
-      login(response.data.token);
+      login(response.data.token, 'demo');
       navigate('/library', { replace: true });
     },
     onError: (error: any) => {

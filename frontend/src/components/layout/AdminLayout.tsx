@@ -15,6 +15,7 @@ import {
   Library,
   ListMusic,  // icon for Series nav item
   ChevronRight,
+  Users,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip';
 import { useAuth } from '../../lib/auth';
@@ -62,6 +63,12 @@ const navItems: NavItem[] = [
     label: 'Series',
     path: '/admin/series',
     description: 'Manage series and collections',
+  },
+  {
+    icon: Users,
+    label: 'Speakers',
+    path: '/admin/speakers',
+    description: 'View tenant speakers',
   },
   {
     icon: Archive,
@@ -207,7 +214,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-2 overflow-hidden">
+          <nav className="min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden p-4">
             {navItems.map((item) => {
               const active = isActive(item.path);
               return (

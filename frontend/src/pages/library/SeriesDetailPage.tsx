@@ -29,8 +29,9 @@ export function SeriesDetailPage() {
   const {
     audioRef,
     playingAudioId,
-    playAudio,    // FIXED: was togglePlayPause (doesn't exist)
+    playAudio,
     isPlaying,
+    stop,
   } = useAudioPlayback();
 
   const formatDuration = (seconds: number) => {
@@ -69,8 +70,35 @@ export function SeriesDetailPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-      {/* Hidden media element for playback */}
-      <video ref={audioRef as React.RefObject<HTMLVideoElement>} className="hidden" />
+      {/* Shared media element for playback */}
+      {(() => {
+        const playingItem = series.audioItems.find((item) => item.id === playingAudioId);
+        const showVideo = playingItem && isVideo(playingItem);
+        return (
+          <div className={showVideo ? 'fixed bottom-6 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10' : 'hidden'}>
+            {showVideo && (
+              <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900">
+                <span className="text-white text-xs font-medium truncate max-w-[200px]">
+                  {playingItem?.title}
+                </span>
+                <button
+                  onClick={stop}
+                  className="text-white/60 hover:text-white ml-2 text-lg leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <video
+              ref={audioRef as React.RefObject<HTMLVideoElement>}
+              className="w-80 max-h-48"
+              controls
+              autoPlay
+              onEnded={stop}
+            />
+          </div>
+        );
+      })()}
 
       {/* Header */}
       <div className="bg-gradient-to-br from-primary-700 via-primary-600 to-accent-600 text-white">
@@ -146,7 +174,7 @@ export function SeriesDetailPage() {
 
                   {/* Play button */}
                   <button
-                    onClick={() => playAudio({ id: audio.id })}  
+                    onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}
                     className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
                       playing
                         ? 'bg-primary-600 text-white'

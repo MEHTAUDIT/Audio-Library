@@ -11,6 +11,7 @@ import {
   History,
   List,
   ListMusic,
+  Library,
   LogIn,
   LogOut,
   Music2,
@@ -322,9 +323,16 @@ export function LibraryPage() {
               responseType: "blob",
             }
           );
-          const audioUrl = URL.createObjectURL(response.data);
+          const streamedBlob = response.data as Blob;
+          const normalizedBlob =
+            (!streamedBlob.type || streamedBlob.type === 'application/octet-stream') && audio.mimeType
+              ? new Blob([streamedBlob], { type: audio.mimeType })
+              : streamedBlob;
+
+          const audioUrl = URL.createObjectURL(normalizedBlob);
   
           audioElement.src = audioUrl;
+          audioElement.load();
           await audioElement.play();
   
           setPlayingId(audio.id);
@@ -460,6 +468,13 @@ export function LibraryPage() {
                 >
                   <ListMusic className="w-4 h-4" />
                   Open queue page
+                </Link>
+                <Link
+                  to="/playlists"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-sm border border-white/20 hover:bg-white/15 transition-colors"
+                >
+                  <Library className="w-4 h-4" />
+                  My playlists
                 </Link>
                 <button
                   type="button"
@@ -798,12 +813,8 @@ export function LibraryPage() {
         const showVideo = playingItem && isVideo(playingItem);
         return (
           <>
-            <video
-              ref={audioRef as React.RefObject<HTMLVideoElement>}
-              className="hidden"
-            />
-            {showVideo && (
-              <div className="fixed bottom-24 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10">
+            <div className={showVideo ? 'fixed bottom-24 right-6 z-50 bg-black rounded-xl shadow-2xl overflow-hidden border border-white/10' : 'hidden'}>
+              {showVideo && (
                 <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900">
                   <span className="text-white text-xs font-medium truncate max-w-[200px]">
                     {playingItem?.title}
@@ -813,15 +824,15 @@ export function LibraryPage() {
                     className="text-white/60 hover:text-white ml-2 text-lg leading-none"
                   >×</button>
                 </div>
-                <video
-                  src={audioRef.current?.src}
-                  className="w-80 max-h-48"
-                  controls
-                  autoPlay
-                  onEnded={() => setPlayingId(null)}
-                />
-              </div>
-            )}
+              )}
+              <video
+                ref={audioRef as React.RefObject<HTMLVideoElement>}
+                className="w-80 max-h-48"
+                controls
+                autoPlay
+                onEnded={() => setPlayingId(null)}
+              />
+            </div>
           </>
         );
       })()}

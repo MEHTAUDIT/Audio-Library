@@ -6,6 +6,7 @@ import com.audiolibrary.entity.Audio;
 import com.audiolibrary.entity.Tenant;
 import com.audiolibrary.repository.TenantRepository;
 import com.audiolibrary.service.AudioService;
+import com.audiolibrary.service.BulkImportService;
 import com.audiolibrary.service.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -35,6 +36,7 @@ import java.util.UUID;
 public class AudioController {
 
     private final AudioService audioService;
+    private final BulkImportService bulkImportService;
     private final TenantRepository tenantRepository;
     private final StorageService storageService;
 
@@ -165,6 +167,12 @@ public class AudioController {
             @RequestPart(value = "speakerId", required = false) String speakerId,
             @Parameter(description = "Category (optional)")
             @RequestPart(value = "category", required = false) String category,
+            @Parameter(description = "Tag names (optional)")
+            @RequestPart(value = "tags", required = false) List<String> tags,
+            @Parameter(description = "Genre/category names (optional)")
+            @RequestPart(value = "genres", required = false) List<String> genres,
+            @Parameter(description = "Client-detected media duration in seconds (optional fallback)")
+            @RequestParam(value = "durationSeconds", required = false) Long clientDurationSeconds,
             @Parameter(description = "Tenant subdomain (e.g., 'demo')")
             @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) throws IOException {
         
@@ -182,6 +190,10 @@ public class AudioController {
         
         // Get audio duration from stored file
         long durationSeconds = storageService.getAudioDuration(storageKey);
+        if (durationSeconds <= 0 && clientDurationSeconds != null && clientDurationSeconds > 0) {
+            durationSeconds = clientDurationSeconds;
+            log.info("Using client-detected media duration: {} seconds for {}", durationSeconds, file.getOriginalFilename());
+        }
         
         try {
             AudioResponse response = audioService.createDraftWithFile(
@@ -198,6 +210,7 @@ public class AudioController {
                     tenant.getId(),
                     fileHash             
             );
+            bulkImportService.linkMetadataByNames(response.getId(), tenant.getId(), speaker, tags, genres);
             
             log.info("Audio uploaded successfully: {}", response.getId());
             return ResponseEntity.ok(response);

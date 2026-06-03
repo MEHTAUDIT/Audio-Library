@@ -20,6 +20,12 @@ export interface SpeakerProfileResponse {
   audios: Audio[];
 }
 
+export interface SpeakerSummary {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+}
+
 export interface SpeakerUpsertRequest {
   name: string;
   bio?: string;

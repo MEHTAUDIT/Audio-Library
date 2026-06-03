@@ -7,18 +7,28 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class BulkImportService {
+
+    private static final int MAX_ZIP_ENTRIES = 10_000;
+    private static final long MAX_ZIP_EXTRACTED_BYTES = 2L * 1024 * 1024 * 1024;
+    private static final Path ZIP_IMPORT_ROOT = Paths.get(System.getProperty("java.io.tmpdir"), "audio-library-bulk-imports")
+            .toAbsolutePath()
+            .normalize();
 
     private final AudioService audioService;
     private final StorageService storageService;
@@ -158,6 +168,8 @@ public class BulkImportService {
         accumulated.put("language", new ArrayList<>());
         accumulated.put("series", new ArrayList<>());
         accumulated.put("title", new ArrayList<>());
+        accumulated.put("tags", new ArrayList<>());
+        accumulated.put("genres", new ArrayList<>());
 
         for (LevelConfig levelConfig : mapping.getLevels()) {
             if (levelConfig.getDepth() >= parts.length) continue;
@@ -165,8 +177,16 @@ public class BulkImportService {
             LevelMapping levelMapping = levelConfig.getMapping();
             if (levelMapping == null) continue;
             switch (levelMapping.getType()) {
-                case "map_to_field": accumulated.put(levelMapping.getField(), List.of(value)); break;
-                case "append_to_field": accumulated.get(levelMapping.getField()).add(value); break;
+                case "map_to_field":
+                    if ("tags".equals(levelMapping.getField()) || "genres".equals(levelMapping.getField())) {
+                        accumulated.computeIfAbsent(levelMapping.getField(), ignored -> new ArrayList<>()).add(value);
+                    } else {
+                        accumulated.put(levelMapping.getField(), new ArrayList<>(List.of(value)));
+                    }
+                    break;
+                case "append_to_field":
+                    accumulated.computeIfAbsent(levelMapping.getField(), ignored -> new ArrayList<>()).add(value);
+                    break;
                 case "skip": case "filename": break;
             }
         }
@@ -179,12 +199,136 @@ public class BulkImportService {
                 .topic(joinValues(accumulated.get("topic"), separator))
                 .language(accumulated.get("language").isEmpty() ? null : accumulated.get("language").get(0))
                 .series(joinValues(accumulated.get("series"), separator))
+                .tags(distinctValues(accumulated.get("tags")))
+                .genres(distinctValues(accumulated.get("genres")))
                 .sizeBytes(sizeBytes).build();
     }
 
     private String joinValues(List<String> values, String separator) {
         if (values == null || values.isEmpty()) return null;
         return String.join(separator, values);
+    }
+
+    public ScanResponse extractAndScanZip(MultipartFile zipFile) throws IOException {
+        if (zipFile == null || zipFile.isEmpty()) {
+            throw new IllegalArgumentException("ZIP file is required");
+        }
+        String filename = Optional.ofNullable(zipFile.getOriginalFilename()).orElse("");
+        if (!filename.toLowerCase().endsWith(".zip")) {
+            throw new IllegalArgumentException("Only ZIP archives are supported");
+        }
+
+        Files.createDirectories(ZIP_IMPORT_ROOT);
+        Path extractionRoot = ZIP_IMPORT_ROOT.resolve(UUID.randomUUID().toString()).normalize();
+        Files.createDirectories(extractionRoot);
+
+        int entryCount = 0;
+        long extractedBytes = 0;
+        int mediaFileCount = 0;
+
+        try (InputStream inputStream = zipFile.getInputStream();
+             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
+            ZipEntry entry;
+            while ((entry = zipInputStream.getNextEntry()) != null) {
+                entryCount++;
+                if (entryCount > MAX_ZIP_ENTRIES) {
+                    throw new IllegalArgumentException("ZIP archive contains too many entries");
+                }
+
+                Path target = extractionRoot.resolve(entry.getName()).normalize();
+                if (!target.startsWith(extractionRoot)) {
+                    throw new IllegalArgumentException("ZIP archive contains an invalid path");
+                }
+
+                if (entry.isDirectory()) {
+                    Files.createDirectories(target);
+                    continue;
+                }
+                if (!isAudioFile(target.getFileName().toString())) {
+                    continue;
+                }
+
+                Files.createDirectories(target.getParent());
+                try (var output = Files.newOutputStream(target, StandardOpenOption.CREATE_NEW)) {
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = zipInputStream.read(buffer)) != -1) {
+                        extractedBytes += read;
+                        if (extractedBytes > MAX_ZIP_EXTRACTED_BYTES) {
+                            throw new IllegalArgumentException("ZIP archive is too large after extraction");
+                        }
+                        output.write(buffer, 0, read);
+                    }
+                }
+                mediaFileCount++;
+            }
+        } catch (IOException | RuntimeException error) {
+            deleteDirectoryQuietly(extractionRoot);
+            throw error;
+        }
+
+        if (mediaFileCount == 0) {
+            deleteDirectoryQuietly(extractionRoot);
+            throw new IllegalArgumentException("ZIP archive does not contain supported audio or video files");
+        }
+
+        log.info("Extracted ZIP archive: filename={} entries={} mediaFiles={} path={}",
+                filename, entryCount, mediaFileCount, extractionRoot);
+        return scanDirectory(extractionRoot.toString());
+    }
+
+    public void cleanupZipImport(String sourcePath) {
+        if (sourcePath == null || sourcePath.isBlank()) {
+            return;
+        }
+        Path path = Paths.get(sourcePath).toAbsolutePath().normalize();
+        if (!ZIP_IMPORT_ROOT.equals(path.getParent()) || !isUuidDirectoryName(path.getFileName().toString())) {
+            log.warn("Refusing to clean up non-ZIP import path: {}", sourcePath);
+            return;
+        }
+        deleteDirectoryQuietly(path);
+    }
+
+    private boolean isUuidDirectoryName(String value) {
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
+    }
+
+    private void deleteDirectoryQuietly(Path root) {
+        if (root == null || !Files.exists(root)) {
+            return;
+        }
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    Files.deleteIfExists(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                    Files.deleteIfExists(dir);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException error) {
+            log.warn("Unable to clean up ZIP import directory {}: {}", root, error.getMessage());
+        }
+    }
+
+    private List<String> distinctValues(List<String> values) {
+        if (values == null || values.isEmpty()) return Collections.emptyList();
+        return values.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     public List<MappedAudioFile> applyMappingToDirectory(String sourcePath, FolderStructureMapping mapping) throws IOException {
@@ -223,6 +367,70 @@ public class BulkImportService {
                 getMimeType(mappedFile.getFilename()), durationSeconds, tenantId, fileHash
         );
         log.info("Imported file: {} as '{}'", mappedFile.getFilename(), mappedFile.getTitle());
+    }
+
+    @Transactional
+    public void linkMetadataByNames(UUID audioId, UUID tenantId, String speakerName,
+                                    List<String> tags, List<String> genres) {
+        Audio audio = audioRepository.findById(audioId)
+                .orElseThrow(() -> new IllegalArgumentException("Audio not found: " + audioId));
+
+        if (speakerName != null && !speakerName.isBlank()) {
+            String trimmedName = speakerName.trim();
+            Speaker speaker = speakerRepository.findByTenantIdAndNameIgnoreCaseAndDeletedAtIsNull(tenantId, trimmedName)
+                    .orElseGet(() -> {
+                        Speaker created = new Speaker();
+                        created.setTenantId(tenantId);
+                        created.setName(trimmedName);
+                        return speakerRepository.save(created);
+                    });
+            if (!audioSpeakerJoinRepository.existsByAudioIdAndSpeakerId(audioId, speaker.getId())) {
+                AudioSpeakerJoin join = new AudioSpeakerJoin();
+                join.setId(new AudioSpeakerJoinId(audioId, speaker.getId()));
+                join.setAudio(audio);
+                join.setSpeaker(speaker);
+                audioSpeakerJoinRepository.save(join);
+            }
+        }
+
+        for (String tagName : distinctValues(tags)) {
+            Tag tag = tagRepository.findByTenantIdAndNameIgnoreCaseAndDeletedAtIsNull(tenantId, tagName)
+                    .orElseGet(() -> {
+                        Tag created = new Tag();
+                        created.setTenantId(tenantId);
+                        created.setName(tagName);
+                        created.setSlug(tagName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-")
+                                .replaceAll("^-|-$", ""));
+                        created.setUsageCount(0L);
+                        return tagRepository.save(created);
+                    });
+            if (!audioTagJoinRepository.existsByAudioIdAndTagId(audioId, tag.getId())) {
+                AudioTagJoin join = new AudioTagJoin();
+                join.setId(new AudioTagJoinId(audioId, tag.getId()));
+                join.setAudio(audio);
+                join.setTag(tag);
+                audioTagJoinRepository.save(join);
+                tag.setUsageCount((tag.getUsageCount() != null ? tag.getUsageCount() : 0L) + 1);
+                tagRepository.save(tag);
+            }
+        }
+
+        for (String genreName : distinctValues(genres)) {
+            Genre genre = genreRepository.findByTenantIdAndNameIgnoreCase(tenantId, genreName)
+                    .orElseGet(() -> {
+                        Genre created = new Genre();
+                        created.setTenantId(tenantId);
+                        created.setName(genreName);
+                        return genreRepository.save(created);
+                    });
+            if (!audioGenreJoinRepository.existsByAudioIdAndGenreId(audioId, genre.getId())) {
+                AudioGenreJoin join = new AudioGenreJoin();
+                join.setId(new AudioGenreJoinId(audioId, genre.getId()));
+                join.setAudio(audio);
+                join.setGenre(genre);
+                audioGenreJoinRepository.save(join);
+            }
+        }
     }
 
 
@@ -327,7 +535,9 @@ public class BulkImportService {
                 }
                 audio.setSpeaker(mappedFile.getSpeaker());     // legacy string field
                 audio.setTopic(mappedFile.getTopic());
-                audio.setLanguage("en");
+                audio.setLanguage(mappedFile.getLanguage() != null && !mappedFile.getLanguage().isBlank()
+                        ? mappedFile.getLanguage().trim()
+                        : "en");
                 audio.setDurationSeconds(durationSeconds);
                 audio.setMimeType(getMimeType(mappedFile.getFilename()));
                 audio.setSizeBytes(sizeBytes);
@@ -371,14 +581,15 @@ public class BulkImportService {
             // ── Link Speaker ──
             if (mappedFile.getSpeaker() != null && !mappedFile.getSpeaker().isBlank()) {
                 String speakerName = mappedFile.getSpeaker().trim();
-                Speaker speaker = speakerCache.computeIfAbsent(speakerName, name -> {
+                String speakerKey = speakerName.toLowerCase(Locale.ROOT);
+                Speaker speaker = speakerCache.computeIfAbsent(speakerKey, ignored -> {
                     // Find existing or create new Speaker entity
-                    return speakerRepository.findByTenantIdAndNameIgnoreCaseAndDeletedAtIsNull(tenantId, name)
+                    return speakerRepository.findByTenantIdAndNameIgnoreCaseAndDeletedAtIsNull(tenantId, speakerName)
                             .orElseGet(() -> {
                                 Speaker newSpeaker = new Speaker();
-                                newSpeaker.setName(name);
+                                newSpeaker.setName(speakerName);
                                 newSpeaker.setTenantId(tenantId);
-                                log.info("Created new speaker: '{}'", name);
+                                log.info("Created new speaker: '{}'", speakerName);
                                 return speakerRepository.save(newSpeaker);
                             });
                 });
@@ -393,21 +604,22 @@ public class BulkImportService {
 
             // ── Link Tags ──
             if (mappedFile.getTags() != null && !mappedFile.getTags().isEmpty()) {
-                for (String tagName : mappedFile.getTags()) {
+                for (String tagName : distinctValues(mappedFile.getTags())) {
                     if (tagName == null || tagName.isBlank()) continue;
                     String trimmedTag = tagName.trim();
 
-                    Tag tag = tagCache.computeIfAbsent(trimmedTag, name -> {
-                        return tagRepository.findByTenantIdAndNameIgnoreCaseAndDeletedAtIsNull(tenantId, name)
+                    String tagKey = trimmedTag.toLowerCase(Locale.ROOT);
+                    Tag tag = tagCache.computeIfAbsent(tagKey, ignored -> {
+                        return tagRepository.findByTenantIdAndNameIgnoreCaseAndDeletedAtIsNull(tenantId, trimmedTag)
                                 .orElseGet(() -> {
                                     Tag newTag = new Tag();
-                                    newTag.setName(name);
+                                    newTag.setName(trimmedTag);
                                     // Generate slug from name: "Sunday Sermons" → "sunday-sermons"
-                                    newTag.setSlug(name.toLowerCase().replaceAll("[^a-z0-9]+", "-")
+                                    newTag.setSlug(trimmedTag.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-")
                                             .replaceAll("^-|-$", ""));
                                     newTag.setTenantId(tenantId);
                                     newTag.setUsageCount(0L);
-                                    log.info("Created new tag: '{}'", name);
+                                    log.info("Created new tag: '{}'", trimmedTag);
                                     return tagRepository.save(newTag);
                                 });
                     });
@@ -423,17 +635,18 @@ public class BulkImportService {
 
             // ── Link Genres ──
             if (mappedFile.getGenres() != null && !mappedFile.getGenres().isEmpty()) {
-                for (String genreName : mappedFile.getGenres()) {
+                for (String genreName : distinctValues(mappedFile.getGenres())) {
                     if (genreName == null || genreName.isBlank()) continue;
                     String trimmedGenre = genreName.trim();
 
-                    Genre genre = genreCache.computeIfAbsent(trimmedGenre, name -> {
-                        return genreRepository.findByTenantIdAndNameIgnoreCase(tenantId, name)
+                    String genreKey = trimmedGenre.toLowerCase(Locale.ROOT);
+                    Genre genre = genreCache.computeIfAbsent(genreKey, ignored -> {
+                        return genreRepository.findByTenantIdAndNameIgnoreCase(tenantId, trimmedGenre)
                                 .orElseGet(() -> {
                                     Genre newGenre = new Genre();
-                                    newGenre.setName(name);
+                                    newGenre.setName(trimmedGenre);
                                     newGenre.setTenantId(tenantId);
-                                    log.info("Created new genre: '{}'", name);
+                                    log.info("Created new genre: '{}'", trimmedGenre);
                                     return genreRepository.save(newGenre);
                                 });
                     });
@@ -504,6 +717,12 @@ public class BulkImportService {
         if (lower.endsWith(".flac")) return "audio/flac";
         if (lower.endsWith(".aac")) return "audio/aac";
         if (lower.endsWith(".wma")) return "audio/x-ms-wma";
+        if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+        if (lower.endsWith(".mkv")) return "video/x-matroska";
+        if (lower.endsWith(".avi")) return "video/x-msvideo";
+        if (lower.endsWith(".mov")) return "video/quicktime";
+        if (lower.endsWith(".webm")) return "video/webm";
+        if (lower.endsWith(".wmv")) return "video/x-ms-wmv";
         return "audio/mpeg";
     }
 }

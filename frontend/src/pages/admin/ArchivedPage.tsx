@@ -12,6 +12,7 @@ import {
     User,
 } from 'lucide-react';
 import React, { useState } from 'react';
+import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
@@ -29,6 +30,8 @@ export function ArchivedPage() {
     isPlaying,
     currentTime,
     duration,
+    setCurrentTime,
+    stop,
   } = useAudioPlayback();
 
   const { data: allAudio, isLoading } = useQuery({
@@ -78,11 +81,17 @@ export function ArchivedPage() {
     }
 
     media.currentTime = time;
+    setCurrentTime(time);
   };
 
   return (
     <div className="space-y-6">
-      <video ref={audioRef as React.RefObject<HTMLVideoElement>} className="hidden" />
+      <FloatingMediaPlayer
+        mediaRef={audioRef}
+        media={allAudio?.find((audio) => audio.id === playingAudioId)}
+        onClose={stop}
+        onEnded={stop}
+      />
 
       {/* Header */}
       <motion.div
@@ -152,7 +161,7 @@ export function ArchivedPage() {
                         <FileAudio className="w-6 h-6 text-slate-400" />
                       </div>
                       <button
-                        onClick={() => playAudio({ id: audio.id })}
+                        onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}
                         className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
                           playingAudioId === audio.id && isPlaying
                             ? 'bg-slate-900 text-white'

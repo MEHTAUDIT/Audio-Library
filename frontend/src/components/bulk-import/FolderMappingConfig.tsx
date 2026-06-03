@@ -5,6 +5,8 @@ import {
   Folder,
   Globe,
   Library,
+  Tags,
+  Shapes,
   SkipForward,
   FileAudio,
   Lightbulb,
@@ -64,6 +66,18 @@ const FIELD_OPTIONS: Array<{
     label: 'Series',
     icon: Library,
     description: 'Creates or assigns to a series collection', // CHANGED: was "stored in description"
+  },
+  {
+    value: { type: 'map_to_field', field: 'genres' },
+    label: 'Genre / Category',
+    icon: Shapes,
+    description: 'Creates or assigns a genre/category',
+  },
+  {
+    value: { type: 'map_to_field', field: 'tags' },
+    label: 'Tag',
+    icon: Tags,
+    description: 'Creates or assigns a searchable tag',
   },
   {
     value: { type: 'skip' },
@@ -145,7 +159,7 @@ export function FolderMappingConfig({
           Quick presets
         </label>
         <div className="flex flex-wrap gap-2">
-          {MAPPING_PRESETS.slice(0, 4).map(preset => (
+          {MAPPING_PRESETS.map(preset => (
             <button
               key={preset.id}
               onClick={() => applyPreset(preset)}

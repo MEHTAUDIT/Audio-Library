@@ -30,8 +30,10 @@ import {
   calculateTotalSize,
 } from '../../lib/bulkImportUtils';
 import { audioApi } from '../../lib/audioApi';
+import { getMediaDurationSeconds } from '../../lib/mediaMetadata';
 import { api } from '../../lib/api';
 import { s3Api, type UploadProgress as S3UploadProgress, isDuplicateError, parseDuplicateMessage, splitDuplicatesAndErrors } from '../../lib/s3Api';
+import { isMediaFilename } from '../../lib/mediaTypes';
 import type {
   DetectedStructure,
   FolderStructureMapping,
@@ -54,6 +56,7 @@ export function BulkUploadPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickUploadRef = useRef<HTMLInputElement>(null);
+  const zipInputRef = useRef<HTMLInputElement>(null);
 
   // State
   // CHANGED: Default to 'server' mode — S3 check will switch to 'browser' if S3 is enabled
@@ -67,6 +70,8 @@ export function BulkUploadPage() {
   
   // Server mode state
   const [serverPath, setServerPath] = useState('');
+  const [serverSourceType, setServerSourceType] = useState<'path' | 'zip'>('path');
+  const [zipFileName, setZipFileName] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   
   // S3 mode state
@@ -107,10 +112,8 @@ export function BulkUploadPage() {
       return;
     }
 
-    // Filter to audio files only
-    const audioFiles = selectedFiles.filter(f => 
-      /\.(mp3|wav|ogg|m4a|flac|aac|wma|mp4|mkv|avi|mov|webm|wmv|m4v)$/i.test(f.name) // CHANGED: added video formats
-    );
+    // Filter to supported audio/video files only
+    const audioFiles = selectedFiles.filter(f => isMediaFilename(f.name));
 
     if (audioFiles.length === 0) {
       alert('No audio files found in the selected folder.');
@@ -187,8 +190,10 @@ export function BulkUploadPage() {
     setIsScanning(true);
     try {
       // Call backend API to scan the path using the api client (includes auth token)
-      const response = await api.post('/bulk-import/scan', { sourcePath: serverPath });
+      const response = await api.post('/bulk-import/scan', { sourcePath: serverPath, sourceType: 'path' });
       
+      setServerSourceType('path');
+      setZipFileName('');
       setStructure(response.data.structure);
       setMapping(response.data.suggestedMapping);
       setStep('configure');
@@ -200,8 +205,40 @@ export function BulkUploadPage() {
     }
   };
 
+  const handleZipUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const zipFile = event.target.files?.[0];
+    event.target.value = '';
+    if (!zipFile) return;
+
+    if (!zipFile.name.toLowerCase().endsWith('.zip')) {
+      alert('Please select a ZIP archive.');
+      return;
+    }
+
+    setIsScanning(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', zipFile);
+      const response = await api.post('/bulk-import/scan-zip', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      setServerPath(response.data.structure.rootPath);
+      setServerSourceType('zip');
+      setZipFileName(zipFile.name);
+      setStructure(response.data.structure);
+      setMapping(response.data.suggestedMapping);
+      setStep('configure');
+    } catch (error) {
+      console.error('ZIP scan error:', error);
+      alert('Failed to scan the ZIP archive. Make sure it contains supported audio or video files.');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   // Apply mapping and generate preview
-  const handleGeneratePreview = () => {
+  const handleGeneratePreview = async () => {
     if (!mapping) return;
     
     if (mode === 'browser') {
@@ -214,19 +251,17 @@ export function BulkUploadPage() {
       const mapped = applyMappingToFiles(fileData, mapping);
       setMappedFiles(mapped);
     } else {
-      // For server mode, we'll get the mapped files from the backend
-      // For now, use the sample files from structure
-      if (structure) {
-        const mapped = structure.sampleFiles.map(path => {
-          const parts = path.split(/[/\\]/);
-          return {
-            originalPath: path,
-            relativePath: path,
-            filename: parts[parts.length - 1],
-            title: parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
-          };
+      try {
+        const response = await api.post<MappedAudioFile[]>('/bulk-import/preview', {
+          sourcePath: serverPath,
+          sourceType: serverSourceType,
+          mapping,
         });
-        setMappedFiles(mapped as MappedAudioFile[]);
+        setMappedFiles(response.data);
+      } catch (error) {
+        console.error('Preview error:', error);
+        alert('Failed to generate the import preview. Please check the server path and mapping.');
+        return;
       }
     }
     
@@ -281,6 +316,7 @@ export function BulkUploadPage() {
         
         const result = await api.post('/bulk-import/execute', {
           sourcePath: serverPath,
+          sourceType: serverSourceType,
           mapping: mapping,
           files: mappedFiles,
         });
@@ -330,12 +366,16 @@ export function BulkUploadPage() {
         );
         
         if (file) {
+          const durationSeconds = await getMediaDurationSeconds(file);
           await audioApi.upload({
             file,
             title: mappedFile.title,
             speaker: mappedFile.speaker,
             category: mappedFile.topic,
             description: mappedFile.series,
+            tags: mappedFile.tags,
+            genres: mappedFile.genres,
+            durationSeconds,
           });
         }
         completed++;
@@ -392,6 +432,8 @@ export function BulkUploadPage() {
           topic: mappedFile.topic,
           series: mappedFile.series,
           description: mappedFile.series,
+          tags: mappedFile.tags,
+          genres: mappedFile.genres,
         },
       };
     }).filter(item => item.file);
@@ -719,14 +761,28 @@ export function BulkUploadPage() {
                   {/* ZIP upload option */}
                   <div className="pt-4 border-t border-slate-200">
                     <p className="text-sm text-slate-500 mb-3">Or upload a ZIP archive:</p>
+                    <input
+                      ref={zipInputRef}
+                      type="file"
+                      accept=".zip,application/zip"
+                      onChange={handleZipUpload}
+                      className="hidden"
+                    />
                     <button
-                      onClick={() => {/* TODO: ZIP upload */}}
+                      type="button"
+                      onClick={() => zipInputRef.current?.click()}
+                      disabled={isScanning}
                       className="px-4 py-2.5 rounded-lg border border-slate-300 text-slate-700 
-                                 font-medium hover:bg-slate-50 inline-flex items-center gap-2"
+                                 font-medium hover:bg-slate-50 inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <FileArchive className="w-4 h-4" />
-                      Upload ZIP File
+                      {isScanning ? 'Scanning ZIP...' : 'Upload ZIP File'}
                     </button>
+                    {zipFileName && (
+                      <p className="mt-2 text-sm text-slate-600">
+                        Selected archive: <span className="font-medium text-slate-800">{zipFileName}</span>
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>

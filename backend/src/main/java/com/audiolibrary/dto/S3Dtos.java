@@ -127,6 +127,8 @@ public class S3Dtos {
          * Series name.
          */
         private String series;
+        private List<String> tags;
+        private List<String> genres;
         
         /**
          * Description.
@@ -239,6 +241,8 @@ public class S3Dtos {
          * Series name.
          */
         private String series;
+        private List<String> tags;
+        private List<String> genres;
         
         /**
          * Description.

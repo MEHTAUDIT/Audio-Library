@@ -66,13 +66,20 @@ public class AudioResponse {
                 .build();
     }
 
-            private static SpeakerResponse fromJoin(AudioSpeakerJoin join) {
-            return SpeakerResponse.builder()
+    private static SpeakerResponse fromJoin(AudioSpeakerJoin join) {
+        String avatarUrl = join.getSpeaker().getAvatarUrl();
+        if (avatarUrl != null && avatarUrl.startsWith("storage:")) {
+            String storageKey = avatarUrl.substring("storage:".length());
+            String version = Integer.toUnsignedString(storageKey.hashCode());
+            avatarUrl = "/api/v1/speaker/" + join.getSpeaker().getId() + "/profile-image?v=" + version;
+        }
+
+        return SpeakerResponse.builder()
                 .id(join.getSpeaker().getId())
                 .name(join.getSpeaker().getName())
-                .avatarUrl(join.getSpeaker().getAvatarUrl())
+                .avatarUrl(avatarUrl)
                 .build();
-            }
+    }
 
     @Data
     @Builder

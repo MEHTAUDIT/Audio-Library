@@ -15,8 +15,9 @@ import {
     Video,
     X,
 } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
 import { audioApi } from '../../lib/audioApi';
 import { seriesApi } from '../../lib/seriesApi';
 import { useAudioPlayback } from '../../lib/useAudioPlayback';
@@ -31,7 +32,16 @@ export function SeriesManagePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const { audioRef, playingAudioId, playAudio, isPlaying, currentTime, duration } = useAudioPlayback();
+  const {
+    audioRef,
+    playingAudioId,
+    playAudio,
+    isPlaying,
+    currentTime,
+    duration,
+    setCurrentTime,
+    stop,
+  } = useAudioPlayback();
 
   const { data: series, isLoading } = useQuery({
     queryKey: ['series', id, 'admin'],
@@ -132,27 +142,41 @@ export function SeriesManagePage() {
     }
 
     media.currentTime = time;
+    setCurrentTime(time);
   };
 
   if (isLoading) {
     return (
       <div>
-        <div className="h-8 w-48 bg-slate-200 rounded animate-pulse mb-4" />
-        <div className="h-6 w-72 bg-slate-100 rounded animate-pulse mb-8" />
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-16 bg-slate-100 rounded-lg animate-pulse mb-3" />
-        ))}
+        <FloatingMediaPlayer mediaRef={audioRef} media={null} onClose={stop} onEnded={stop} />
+        <div className="space-y-4">
+          <div className="h-8 w-48 bg-slate-200 rounded animate-pulse mb-4" />
+          <div className="h-6 w-72 bg-slate-100 rounded animate-pulse mb-8" />
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 bg-slate-100 rounded-lg animate-pulse mb-3" />
+          ))}
+        </div>
       </div>
     );
   }
 
   if (!series) {
-    return <p className="text-slate-500">Series not found</p>;
+    return (
+      <div>
+        <FloatingMediaPlayer mediaRef={audioRef} media={null} onClose={stop} onEnded={stop} />
+        <p className="text-slate-500">Series not found</p>
+      </div>
+    );
   }
 
   return (
     <div>
-      <video ref={audioRef as React.RefObject<HTMLVideoElement>} className="hidden" />
+      <FloatingMediaPlayer
+        mediaRef={audioRef}
+        media={series.audioItems.find((audio) => audio.id === playingAudioId)}
+        onClose={stop}
+        onEnded={stop}
+      />
 
       <button
         onClick={() => navigate('/admin/series')}
@@ -208,7 +232,7 @@ export function SeriesManagePage() {
                 {index + 1}
               </span>
               <button
-                onClick={() => playAudio({ id: audio.id })}
+                onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}
                 className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
                   playingAudioId === audio.id && isPlaying
                     ? 'bg-primary-600 text-white'
@@ -275,6 +299,9 @@ export function SeriesManagePage() {
                 <button
                   onClick={() => {
                     if (confirm(`Remove "${audio.title}" from this series?`)) {
+                      if (playingAudioId === audio.id) {
+                        stop();
+                      }
                       removeMutation.mutate(audio.id);
                     }
                   }}

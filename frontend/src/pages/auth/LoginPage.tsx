@@ -34,10 +34,10 @@ export const LoginPage = () => {
       const headers: Record<string, string> | undefined = data.subdomain ? { 'X-Tenant-ID': data.subdomain } : undefined;
       return api.post('/auth/login', { email: data.email, password: data.password }, headers ? { headers } : undefined);
     },
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
       const nextPath = getAuthRedirectPath(response.data.token);
       setAuthLandingPath(nextPath);
-      login(response.data.token);
+      login(response.data.token, variables.subdomain || 'demo');
       navigate(nextPath, { replace: true });
     },
     onError: (error: any) => {

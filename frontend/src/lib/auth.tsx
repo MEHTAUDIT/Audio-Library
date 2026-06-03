@@ -19,19 +19,9 @@ const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
   }
 };
 
-const extractLandingPathFromToken = (token: string): string | null => {
-  const payload = decodeJwtPayload(token);
-  if (!payload) {
-    return null;
-  }
-
-  const landingPath = payload.landingPath ?? payload.redirectTo ?? payload.defaultRoute;
-  if (typeof landingPath === 'string' && landingPath.startsWith('/')) {
-    return landingPath;
-  }
-
+const hasAdminClaim = (payload: Record<string, unknown>) => {
   if (payload.isAdmin === true) {
-    return '/admin';
+    return true;
   }
 
   const claimValues = [
@@ -51,19 +41,56 @@ const extractLandingPathFromToken = (token: string): string | null => {
     .flat()
     .filter((value): value is string => typeof value === 'string');
 
+  return [...claimValues, ...roles]
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.toLowerCase())
+    .some((value) => value.includes('admin') || value.includes('owner') || value.includes('staff') || value.includes('manager'));
+};
+
+const extractLandingPathFromToken = (token: string): string | null => {
+  const payload = decodeJwtPayload(token);
+  if (!payload) {
+    return null;
+  }
+
+  const landingPath = payload.landingPath ?? payload.redirectTo ?? payload.defaultRoute;
+  if (typeof landingPath === 'string' && landingPath.startsWith('/')) {
+    return landingPath;
+  }
+
+  if (hasAdminClaim(payload)) {
+    return '/admin';
+  }
+
+  const claimValues = [
+    payload.userType,
+    payload.accountType,
+    payload.type,
+  ];
+
+  const roles = [
+    ...(Array.isArray(payload.roles) ? payload.roles : []),
+    ...(Array.isArray(payload.authorities) ? payload.authorities : []),
+    ...(Array.isArray(payload.permissions) ? payload.permissions : []),
+  ]
+    .flat()
+    .filter((value): value is string => typeof value === 'string');
+
   const normalizedClaims = [...claimValues, ...roles]
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.toLowerCase());
-
-  if (normalizedClaims.some((value) => value.includes('admin') || value.includes('owner') || value.includes('staff') || value.includes('manager'))) {
-    return '/admin';
-  }
 
   if (normalizedClaims.some((value) => value.includes('user') || value.includes('listener') || value.includes('member') || value.includes('customer'))) {
     return '/library';
   }
 
   return null;
+};
+
+export const hasAdminAccess = (token: string | null = localStorage.getItem('token')) => {
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  return Boolean(payload && hasAdminClaim(payload));
 };
 
 export const getAuthRedirectPath = (token: string | null = localStorage.getItem('token')) => {
@@ -84,9 +111,10 @@ export const setAuthLandingPath = (path: string) => {
 
 interface AuthContextType {
   token: string | null;
-  login: (token: string) => void;
+  login: (token: string, tenantSubdomain?: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
+  isAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -105,6 +133,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (timeSinceActivity > SESSION_TIMEOUT_MS) {
         // Session expired - clear token
         localStorage.removeItem('token');
+        localStorage.removeItem('tenantSubdomain');
         localStorage.removeItem('lastActivity');
         return null;
       }
@@ -176,6 +205,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     } else {
       localStorage.removeItem('token');
+      localStorage.removeItem('tenantSubdomain');
       localStorage.removeItem('lastActivity');
       delete api.defaults.headers.common['Authorization'];
     }
@@ -208,7 +238,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const login = (newToken: string) => {
+  const login = (newToken: string, tenantSubdomain = 'demo') => {
+    localStorage.setItem('tenantSubdomain', tenantSubdomain);
     setToken(newToken);
   };
 
@@ -220,7 +251,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, login, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ token, login, logout, isAuthenticated: !!token, isAdmin: hasAdminAccess(token) }}>
       {children}
     </AuthContext.Provider>
   );

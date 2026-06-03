@@ -1,4 +1,4 @@
-import type { Audio, AudioStats, AudioUpdateRequest } from '../types/audio';
+import type { Audio, AudioStats, AudioUpdateRequest, BulkActionResult } from '../types/audio';
 import { api } from './api';
 
 export interface AudioUploadData {
@@ -6,7 +6,13 @@ export interface AudioUploadData {
   title: string;
   description?: string;
   speaker?: string;
+  speakerId?: string;
   category?: string;
+  tags?: string[];
+  genres?: string[];
+  mimeType?: string;
+  sizeBytes?: number;
+  durationSeconds?: number;
 }
 
 export const audioApi = {
@@ -65,7 +71,15 @@ export const audioApi = {
     formData.append('title', data.title);
     if (data.description) formData.append('description', data.description);
     if (data.speaker) formData.append('speaker', data.speaker);
+    if (data.speakerId) formData.append('speakerId', data.speakerId);
     if (data.category) formData.append('category', data.category);
+    data.tags?.forEach(tag => formData.append('tags', tag));
+    data.genres?.forEach(genre => formData.append('genres', genre));
+    if (data.mimeType) formData.append('mimeType', data.mimeType);
+    if (typeof data.sizeBytes === 'number') formData.append('sizeBytes', String(data.sizeBytes));
+    if (typeof data.durationSeconds === 'number' && data.durationSeconds > 0) {
+      formData.append('durationSeconds', String(data.durationSeconds));
+    }
 
     const response = await api.post<Audio>('/audio', formData, {
       headers: {
@@ -101,6 +115,21 @@ export const audioApi = {
   // Archive audio
   archive: async (id: string): Promise<Audio> => {
     const response = await api.post<Audio>(`/audio/${id}/archive`);
+    return response.data;
+  },
+
+  bulkPublish: async (ids: string[]): Promise<BulkActionResult> => {
+    const response = await api.post<BulkActionResult>('/audio/bulk-publish', ids);
+    return response.data;
+  },
+
+  bulkUnpublish: async (ids: string[]): Promise<BulkActionResult> => {
+    const response = await api.post<BulkActionResult>('/audio/bulk-unpublish', ids);
+    return response.data;
+  },
+
+  bulkArchive: async (ids: string[]): Promise<BulkActionResult> => {
+    const response = await api.post<BulkActionResult>('/audio/bulk-archive', ids);
     return response.data;
   },
 

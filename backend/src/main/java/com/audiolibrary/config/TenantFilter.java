@@ -62,6 +62,13 @@ public class TenantFilter extends OncePerRequestFilter {
         String tenantKey = request.getHeader("X-Tenant-ID"); // Typically subdomain
         String resolvedFrom = "header";
 
+        // Browser-native asset requests such as <img src="..."> cannot send the
+        // custom tenant header, so allow generated asset URLs to carry it.
+        if (tenantKey == null || tenantKey.isBlank()) {
+            tenantKey = request.getParameter("tenant");
+            resolvedFrom = "query";
+        }
+
         if (tenantKey == null || tenantKey.isBlank()) {
             String host = request.getServerName();
             tenantKey = resolveTenant(host);
@@ -101,6 +108,9 @@ public class TenantFilter extends OncePerRequestFilter {
                 }
 
                 TenantContext.setCurrentTenant(schemaName);
+                request.setAttribute("tenantId", resolvedTenant.getId());
+                request.setAttribute("tenantSchema", schemaName);
+                request.setAttribute("tenantSubdomain", resolvedTenant.getSubdomain());
             } else {
                 // If tenant doesn't exist yet (or missing schemaName), in local we can fall back to using tenantKey directly
                 // but generally we keep public schema unless explicitly known.

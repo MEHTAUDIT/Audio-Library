@@ -48,6 +48,9 @@ export function ProcessUploadPage() {
   // Bulk edit state
   const [bulkSpeaker, setBulkSpeaker] = useState('');
   const [bulkTopic, setBulkTopic] = useState('');
+  const [bulkSeries, setBulkSeries] = useState('');
+  const [bulkTags, setBulkTags] = useState('');
+  const [bulkGenres, setBulkGenres] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   // Load staging files on mount
@@ -119,13 +122,22 @@ export function ProcessUploadPage() {
           ...f,
           speaker: bulkSpeaker || f.speaker,
           topic: bulkTopic || f.topic,
+          series: bulkSeries || f.series,
+          tags: bulkTags ? parseList(bulkTags) : f.tags,
+          genres: bulkGenres ? parseList(bulkGenres) : f.genres,
         };
       }
       return f;
     }));
     setBulkSpeaker('');
     setBulkTopic('');
+    setBulkSeries('');
+    setBulkTags('');
+    setBulkGenres('');
   };
+
+  const parseList = (value: string): string[] =>
+    Array.from(new Set(value.split(',').map(item => item.trim()).filter(Boolean)));
 
   const handleProcess = async () => {
     setProcessing(true);
@@ -141,6 +153,8 @@ export function ProcessUploadPage() {
           topic: f.topic,
           series: f.series,
           description: f.description,
+          tags: f.tags,
+          genres: f.genres,
         })),
       };
 
@@ -289,7 +303,7 @@ export function ProcessUploadPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-end gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-end">
               <div className="flex-1">
                 <label className="block text-sm font-medium text-slate-700 mb-1">
                   <User className="w-4 h-4 inline mr-1" />
@@ -316,9 +330,39 @@ export function ProcessUploadPage() {
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Series</label>
+                <input
+                  type="text"
+                  value={bulkSeries}
+                  onChange={(e) => setBulkSeries(e.target.value)}
+                  placeholder="e.g., Weekly Lessons"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tags</label>
+                <input
+                  type="text"
+                  value={bulkTags}
+                  onChange={(e) => setBulkTags(e.target.value)}
+                  placeholder="featured, sunday"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Genres / Categories</label>
+                <input
+                  type="text"
+                  value={bulkGenres}
+                  onChange={(e) => setBulkGenres(e.target.value)}
+                  placeholder="Educational, Religious"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                />
+              </div>
               <button
                 onClick={applyBulkEdit}
-                disabled={selectedFiles.size === 0 || (!bulkSpeaker && !bulkTopic)}
+                disabled={selectedFiles.size === 0 || (!bulkSpeaker && !bulkTopic && !bulkSeries && !bulkTags && !bulkGenres)}
                 className="px-4 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-700 
                            disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
@@ -369,6 +413,9 @@ export function ProcessUploadPage() {
                     <th className="text-left py-3 px-2">Title</th>
                     <th className="text-left py-3 px-2">Speaker</th>
                     <th className="text-left py-3 px-2">Topic</th>
+                    <th className="text-left py-3 px-2">Series</th>
+                    <th className="text-left py-3 px-2">Tags</th>
+                    <th className="text-left py-3 px-2">Genres</th>
                     <th className="text-left py-3 px-2 w-24">Size</th>
                   </tr>
                 </thead>
@@ -416,6 +463,33 @@ export function ProcessUploadPage() {
                           onChange={(e) => updateFile(file.stagingKey, { topic: e.target.value })}
                           placeholder="Topic"
                           className="w-full px-2 py-1 rounded border border-slate-200 focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
+                        />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input
+                          type="text"
+                          value={file.series || ''}
+                          onChange={(e) => updateFile(file.stagingKey, { series: e.target.value })}
+                          placeholder="Series"
+                          className="w-36 px-2 py-1 rounded border border-slate-200 focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
+                        />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input
+                          type="text"
+                          value={(file.tags || []).join(', ')}
+                          onChange={(e) => updateFile(file.stagingKey, { tags: e.target.value.split(',').map(item => item.trimStart()) })}
+                          placeholder="tag, tag"
+                          className="w-40 px-2 py-1 rounded border border-slate-200 focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
+                        />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input
+                          type="text"
+                          value={(file.genres || []).join(', ')}
+                          onChange={(e) => updateFile(file.stagingKey, { genres: e.target.value.split(',').map(item => item.trimStart()) })}
+                          placeholder="genre, category"
+                          className="w-40 px-2 py-1 rounded border border-slate-200 focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
                         />
                       </td>
                       <td className="py-2 px-2 text-slate-500">

@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { AlertCircle, CheckCircle2, Globe, ImageIcon, Plus, RotateCcw, UserCircle2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { AlertCircle, CheckCircle2, Globe, ImageIcon, Plus, RotateCcw, Upload, UserCircle2, X } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -17,7 +17,6 @@ const initialFormState = {
   name: '',
   bio: '',
   websiteUrl: '',
-  profileImageUrl: '',
 };
 
 const tabButtonClass = (active: boolean) =>
@@ -32,19 +31,57 @@ const cleanOptionalString = (value: string) => {
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>('add-speaker');
   const [speakerMode, setSpeakerMode] = useState<SpeakerMode>('create');
   const [form, setForm] = useState(initialFormState);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [profileImage, setProfileImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [existingImageUrl, setExistingImageUrl] = useState('');
+  const [isLoadingSpeaker, setIsLoadingSpeaker] = useState(false);
 
   const payload = useMemo<SpeakerUpsertRequest>(() => ({
     name: form.name.trim(),
     bio: cleanOptionalString(form.bio),
     websiteUrl: cleanOptionalString(form.websiteUrl),
-    profileImageUrl: cleanOptionalString(form.profileImageUrl),
-  }), [form.bio, form.name, form.profileImageUrl, form.websiteUrl]);
+  }), [form.bio, form.name, form.websiteUrl]);
+
+  useEffect(() => {
+    const speakerId = searchParams.get('editSpeaker');
+    if (!speakerId) {
+      return;
+    }
+
+    let active = true;
+    setSpeakerMode('update');
+    setIsLoadingSpeaker(true);
+    speakerApi.getSpeakerProfile(speakerId)
+      .then((speaker) => {
+        if (!active) return;
+        setForm({
+          speakerId: speaker.id,
+          name: speaker.name,
+          bio: speaker.bio,
+          websiteUrl: speaker.websiteUrl,
+        });
+        setImagePreview(speaker.avatarUrl);
+        setExistingImageUrl(speaker.avatarUrl);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setFormError(error instanceof Error ? error.message : 'Unable to load speaker.');
+      })
+      .finally(() => {
+        if (active) setIsLoadingSpeaker(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [searchParams]);
 
   const upsertMutation = useMutation({
     mutationFn: async () => {
@@ -53,7 +90,8 @@ export function SettingsPage() {
       }
 
       if (speakerMode === 'create') {
-        return speakerApi.createSpeaker(payload);
+        const speaker = await speakerApi.createSpeaker(payload);
+        return profileImage ? speakerApi.uploadProfileImage(speaker.id, profileImage) : speaker;
       }
 
       const speakerId = form.speakerId.trim();
@@ -61,9 +99,11 @@ export function SettingsPage() {
         throw new Error('Speaker ID is required when updating an existing speaker.');
       }
 
-      return speakerApi.updateSpeaker(speakerId, payload);
+      const speaker = await speakerApi.updateSpeaker(speakerId, payload);
+      return profileImage ? speakerApi.uploadProfileImage(speaker.id, profileImage) : speaker;
     },
     onSuccess: (speaker) => {
+      queryClient.invalidateQueries({ queryKey: ['speakers'] });
       queryClient.invalidateQueries({ queryKey: ['speakerProfile', speaker.id] });
       setSuccessMessage(
         speakerMode === 'create'
@@ -71,6 +111,9 @@ export function SettingsPage() {
           : `Speaker ${speaker.name} was updated successfully.`
       );
       setForm(initialFormState);
+      setProfileImage(null);
+      setImagePreview('');
+      setExistingImageUrl('');
       setSpeakerMode('create');
       navigate(`/speaker/${speaker.id}`);
     },
@@ -92,6 +135,31 @@ export function SettingsPage() {
     setSuccessMessage(null);
     await upsertMutation.mutateAsync();
   };
+
+  const handleProfileImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFormError('Please select an image file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setFormError('Profile image must be 5MB or smaller.');
+      return;
+    }
+
+    setProfileImage(file);
+    setImagePreview(URL.createObjectURL(file));
+    setFormError(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview.startsWith('blob:')) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
+  }, [imagePreview]);
 
   return (
     <div className="space-y-8">
@@ -158,12 +226,13 @@ export function SettingsPage() {
                     <label className="text-sm font-medium text-slate-700">Speaker ID</label>
                     <Input
                       value={form.speakerId}
-                      onChange={(event) => handleChange('speakerId', event.target.value)}
-                      placeholder="Existing speaker UUID"
+                      readOnly
+                      placeholder="Open a speaker profile and choose Edit profile"
+                      className="cursor-not-allowed bg-slate-50 text-slate-500"
                       autoComplete="off"
                     />
                     <p className="text-xs text-slate-500">
-                      Required for updates. The backend should expose <span className="font-medium text-slate-700">PUT /api/v1/speaker/{'{'}speaker_Id{'}'}</span>.
+                      Speaker IDs are permanent and cannot be changed. Open a speaker profile and choose <span className="font-medium text-slate-700">Edit profile</span> to update it.
                     </p>
                   </div>
                 )}
@@ -206,17 +275,40 @@ export function SettingsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-700">Profile image URL</label>
-                    <div className="relative">
-                      <ImageIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <Input
-                        value={form.profileImageUrl}
-                        onChange={(event) => handleChange('profileImageUrl', event.target.value)}
-                        placeholder="https://cdn.example.com/speaker.jpg"
-                        className="pl-10"
-                        autoComplete="off"
-                      />
+                    <label className="text-sm font-medium text-slate-700">Profile image</label>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-400">
+                        {imagePreview ? (
+                          <img src={imagePreview} alt="Speaker profile preview" className="h-full w-full object-cover" />
+                        ) : (
+                          <ImageIcon className="h-5 w-5" />
+                        )}
+                      </div>
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
+                        <Upload className="h-4 w-4" />
+                        Choose image
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
+                          onChange={handleProfileImageChange}
+                          className="sr-only"
+                        />
+                      </label>
+                      {profileImage && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileImage(null);
+                            setImagePreview(existingImageUrl);
+                          }}
+                          className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          title="Remove selected image"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
+                    <p className="text-xs text-slate-500">JPG, PNG, WEBP, or GIF. Maximum 5MB.</p>
                   </div>
                 </div>
 
@@ -235,7 +327,7 @@ export function SettingsPage() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-3 pt-2">
-                  <Button type="submit" loading={upsertMutation.isPending} icon={<Plus className="h-4 w-4" />}>
+                  <Button type="submit" loading={upsertMutation.isPending || isLoadingSpeaker} icon={<Plus className="h-4 w-4" />}>
                     {speakerMode === 'create' ? 'Create speaker' : 'Update speaker'}
                   </Button>
                   <Button
@@ -243,6 +335,9 @@ export function SettingsPage() {
                     variant="outline"
                     onClick={() => {
                       setForm(initialFormState);
+                      setProfileImage(null);
+                      setImagePreview('');
+                      setExistingImageUrl('');
                       setSpeakerMode('create');
                       setFormError(null);
                       setSuccessMessage(null);
@@ -267,7 +362,7 @@ export function SettingsPage() {
                 </div>
                 <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
-                  <span><span className="font-medium text-slate-900">bio</span>, <span className="font-medium text-slate-900">websiteUrl</span>, and <span className="font-medium text-slate-900">profileImageUrl</span> are optional.</span>
+                  <span><span className="font-medium text-slate-900">bio</span>, <span className="font-medium text-slate-900">websiteUrl</span>, and the uploaded profile image are optional.</span>
                 </div>
                 <div className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
@@ -286,6 +381,8 @@ export function SettingsPage() {
                   POST /api/v1/speaker
                   <br />
                   PUT /api/v1/speaker/{'{'}speaker_Id{'}'}
+                  <br />
+                  POST /api/v1/speaker/{'{'}speaker_Id{'}'}/profile-image
                 </p>
                 <p className="text-slate-300">
                   If the backend still only exposes the read-only speaker profile endpoint, the form will compile but the mutations will fail until those routes are implemented.
@@ -311,7 +408,7 @@ export function SettingsPage() {
                   <li><span className="font-medium text-slate-900">name</span>: required speaker display name.</li>
                   <li><span className="font-medium text-slate-900">bio</span>: optional short biography or role summary.</li>
                   <li><span className="font-medium text-slate-900">websiteUrl</span>: optional public website or social profile.</li>
-                  <li><span className="font-medium text-slate-900">profileImageUrl</span>: optional avatar/profile image URL.</li>
+                  <li><span className="font-medium text-slate-900">profile image</span>: optional image uploaded after the speaker record is created.</li>
                 </ul>
               </div>
               <div>
@@ -327,7 +424,7 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4 text-sm leading-6 text-slate-600">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">PUT /api/v1/speaker/{speaker_Id}</p>
+                <p className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">PUT /api/v1/speaker/{'{'}speaker_Id{'}'}</p>
                 <p className="mt-2 text-slate-700">Update an existing speaker in the current tenant by ID.</p>
               </div>
               <div>

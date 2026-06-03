@@ -10,8 +10,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
@@ -44,6 +46,22 @@ public class BulkImportController {
             return ResponseEntity.badRequest().build();
         } catch (IOException e) {
             log.error("Error scanning path: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @Operation(summary = "Upload and scan ZIP archive", description = "Upload a ZIP archive, extract supported media files, and detect its folder structure. Requires ADMIN role.")
+    @PostMapping(value = "/scan-zip", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'OWNER')")
+    public ResponseEntity<ScanResponse> scanZip(@RequestParam("file") MultipartFile file) {
+        log.info("Scanning uploaded ZIP archive: {}", file.getOriginalFilename());
+        try {
+            return ResponseEntity.ok(bulkImportService.extractAndScanZip(file));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid ZIP archive: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        } catch (IOException e) {
+            log.error("Error scanning ZIP archive: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -138,13 +156,18 @@ public class BulkImportController {
                 request.getFiles().size(),
                 subdomain);
         
-        BulkImportService.BatchImportResult result = bulkImportService.importBatch(
-                request.getSourcePath(),
-                request.getFiles(),
-                tenant.getId()
-        );
-        
-        return ResponseEntity.ok(result);
+        try {
+            BulkImportService.BatchImportResult result = bulkImportService.importBatch(
+                    request.getSourcePath(),
+                    request.getFiles(),
+                    tenant.getId()
+            );
+            return ResponseEntity.ok(result);
+        } finally {
+            if ("zip".equalsIgnoreCase(request.getSourceType())) {
+                bulkImportService.cleanupZipImport(request.getSourcePath());
+            }
+        }
     }
 
     @Operation(summary = "Get mapping presets", description = "Get available preset mapping configurations.")

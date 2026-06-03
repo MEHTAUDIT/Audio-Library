@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -11,10 +11,15 @@ import {
   Check,
   Loader2,
   AlertCircle,
+  Video,
   ArrowRight,
 } from 'lucide-react';
 import { audioApi, AudioUploadData } from '../../lib/audioApi';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
+import { isMediaFilename, MEDIA_ACCEPT_INPUT, MEDIA_DROPZONE_ACCEPT } from '../../lib/mediaTypes';
+import { speakerApi } from '../../lib/speakerApi';
+import { getMediaDurationSeconds } from '../../lib/mediaMetadata';
+import type { SpeakerSummary } from '../../types/speaker';
 
 interface FileWithPreview extends File {
   preview?: string;
@@ -28,11 +33,19 @@ interface UploadFormData {
   language: string;
 }
 
+const isVideoFile = (file: File) =>
+  file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(file.name);
+
 export function UploadPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [currentStep, setCurrentStep] = useState<'upload' | 'details' | 'success'>('upload');
+  const [selectedSpeaker, setSelectedSpeaker] = useState<SpeakerSummary | null>(null);
+  const [speakerError, setSpeakerError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [isResolvingSpeaker, setIsResolvingSpeaker] = useState(false);
+  const [debouncedSpeakerQuery, setDebouncedSpeakerQuery] = useState('');
   const [formData, setFormData] = useState<UploadFormData>({
     title: '',
     description: '',
@@ -52,11 +65,13 @@ export function UploadPage() {
   });
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-
     const mediaFiles = acceptedFiles.filter((file) =>
-      file.type.startsWith('audio/') || file.type.startsWith('video/')
+      file.type.startsWith('audio/') ||
+      file.type.startsWith('video/') ||
+      isMediaFilename(file.name)
     );
     if (mediaFiles.length > 0) {
+      setFileError(null);
       setFiles(mediaFiles);
       // Auto-fill title from filename
       const fileName = mediaFiles[0].name.replace(/\.[^/.]+$/, '');
@@ -70,28 +85,103 @@ export function UploadPage() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'audio/*': ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'],
-      'video/*': ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'], 
+    onDropRejected: () => {
+      setFileError('Please select a supported audio or video file.');
     },
+    accept: MEDIA_DROPZONE_ACCEPT,
     maxFiles: 1,
+    maxSize: 500 * 1024 * 1024,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSpeakerQuery(formData.speaker.trim());
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [formData.speaker]);
+
+  const speakerQuery = useQuery({
+    queryKey: ['speakers', debouncedSpeakerQuery],
+    queryFn: ({ signal }) => speakerApi.listSpeakers(debouncedSpeakerQuery, signal),
+    enabled: currentStep === 'details' && debouncedSpeakerQuery.length >= 2 && !isResolvingSpeaker,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  const resolveSpeakerForUpload = async () => {
+    const speakerName = formData.speaker.trim();
+    if (!speakerName) {
+      return { speaker: undefined, speakerId: undefined };
+    }
+
+    if (selectedSpeaker && selectedSpeaker.name.toLowerCase() === speakerName.toLowerCase()) {
+      return { speaker: selectedSpeaker.name, speakerId: selectedSpeaker.id };
+    }
+
+    const exactMatch = speakerQuery.data?.find(
+      (speaker) => speaker.name.toLowerCase() === speakerName.toLowerCase()
+    );
+    if (exactMatch) {
+      return { speaker: exactMatch.name, speakerId: exactMatch.id };
+    }
+
+    try {
+      const createdSpeaker = await speakerApi.createSpeaker({ name: speakerName });
+      queryClient.invalidateQueries({ queryKey: ['speakers'] });
+      return { speaker: createdSpeaker.name, speakerId: createdSpeaker.id };
+    } catch (error: any) {
+      const message = String(error?.response?.data?.message ?? error?.message ?? '').toLowerCase();
+      if (!message.includes('already exists')) {
+        throw error;
+      }
+
+      const existingSpeakers = await speakerApi.listSpeakers(speakerName);
+      const existingSpeaker = existingSpeakers.find(
+        (speaker) => speaker.name.toLowerCase() === speakerName.toLowerCase()
+      );
+      if (!existingSpeaker) {
+        throw error;
+      }
+
+      return { speaker: existingSpeaker.name, speakerId: existingSpeaker.id };
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const file = files[0];
-    
-    uploadMutation.mutate({
-      file: file,
-      title: formData.title,
-      description: formData.description || undefined,
-      speaker: formData.speaker || undefined,
-      category: formData.topic || undefined,
-    });
+
+    try {
+      setSpeakerError(null);
+      setIsResolvingSpeaker(true);
+      const speakerFields = await resolveSpeakerForUpload();
+      const durationSeconds = await getMediaDurationSeconds(file);
+      setIsResolvingSpeaker(false);
+
+      uploadMutation.mutate({
+        file: file,
+        title: formData.title,
+        description: formData.description || undefined,
+        speaker: speakerFields.speaker,
+        speakerId: speakerFields.speakerId,
+        category: formData.topic || undefined,
+        mimeType: file.type || undefined,
+        sizeBytes: file.size,
+        durationSeconds,
+      });
+    } catch (error) {
+      setIsResolvingSpeaker(false);
+      setSpeakerError(error instanceof Error ? error.message : 'Unable to save speaker.');
+    }
   };
 
   const resetForm = () => {
     setFiles([]);
+    setSelectedSpeaker(null);
+    setSpeakerError(null);
+    setFileError(null);
+    setIsResolvingSpeaker(false);
     setFormData({
       title: '',
       description: '',
@@ -190,7 +280,7 @@ export function UploadPage() {
                       : 'border-slate-300 hover:border-violet-400 hover:bg-slate-50'
                   }`}
                 >
-                  <input {...getInputProps()} />
+                  <input {...getInputProps({ accept: MEDIA_ACCEPT_INPUT })} />
                   <div className="flex flex-col items-center gap-4">
                     <div
                       className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-colors ${
@@ -206,7 +296,7 @@ export function UploadPage() {
                         {isDragActive ? 'Drop your file here' : 'Drag & drop audio or video file'}
                       </p>
                       <p className="text-slate-500 mt-1">
-                        or click to browse • MP3, WAV, OGG, M4A, FLAC, MP4, MOV, MKV
+                        or click to browse • MP3, WAV, OGG, M4A, FLAC, AAC, MP4, MOV, AVI, MKV, WEBM, M4V
                       </p>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -215,6 +305,12 @@ export function UploadPage() {
                     </div>
                   </div>
                 </div>
+                {fileError && (
+                  <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>{fileError}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -230,7 +326,7 @@ export function UploadPage() {
           >
             <Card>
               <CardHeader>
-                <CardTitle>Audio Details</CardTitle>
+                <CardTitle>Media Details</CardTitle>
                 <CardDescription>
                   Fill in the metadata for your file
                 </CardDescription>
@@ -241,7 +337,11 @@ export function UploadPage() {
                   <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg mb-6">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center">
-                        <FileAudio className="w-6 h-6 text-white" />
+                        {isVideoFile(files[0]) ? (
+                          <Video className="w-6 h-6 text-white" />
+                        ) : (
+                          <FileAudio className="w-6 h-6 text-white" />
+                        )}
                       </div>
                       <div>
                         <p className="font-medium text-slate-900">{files[0].name}</p>
@@ -293,13 +393,64 @@ export function UploadPage() {
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         Speaker
                       </label>
-                      <input
-                        type="text"
-                        value={formData.speaker}
-                        onChange={(e) => setFormData({ ...formData, speaker: e.target.value })}
-                        className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-                        placeholder="Speaker name"
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={formData.speaker}
+                          onChange={(e) => {
+                            setFormData({ ...formData, speaker: e.target.value });
+                            setSelectedSpeaker(null);
+                            setSpeakerError(null);
+                          }}
+                          className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                          placeholder="Start typing a speaker name"
+                          autoComplete="off"
+                        />
+                        {formData.speaker.trim() && !selectedSpeaker && (
+                          <div className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                            {formData.speaker.trim().length < 2 ? (
+                              <div className="px-4 py-2 text-sm text-slate-500">Type at least 2 characters to search speakers.</div>
+                            ) : speakerQuery.isLoading || debouncedSpeakerQuery !== formData.speaker.trim() ? (
+                              <div className="px-4 py-2 text-sm text-slate-500">Searching speakers...</div>
+                            ) : speakerQuery.data && speakerQuery.data.length > 0 ? (
+                              <>
+                                {speakerQuery.data.map((speaker) => (
+                                  <button
+                                    key={speaker.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSpeaker(speaker);
+                                      setFormData({ ...formData, speaker: speaker.name });
+                                      setSpeakerError(null);
+                                    }}
+                                    className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-slate-50"
+                                  >
+                                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700">
+                                      {speaker.name.charAt(0).toUpperCase()}
+                                    </span>
+                                    <span className="font-medium text-slate-700">{speaker.name}</span>
+                                  </button>
+                                ))}
+                                <div className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">
+                                  Press Save as Draft to create "{formData.speaker.trim()}" if none of these match.
+                                </div>
+                              </>
+                            ) : (
+                              <div className="px-4 py-2 text-sm text-slate-500">
+                                New speaker "{formData.speaker.trim()}" will be created on upload.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {selectedSpeaker && (
+                          <p className="mt-1 text-xs text-emerald-600">
+                            Linked to speaker profile: {selectedSpeaker.name}
+                          </p>
+                        )}
+                        {speakerError && (
+                          <p className="mt-1 text-xs text-rose-600">{speakerError}</p>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -322,6 +473,7 @@ export function UploadPage() {
                     <select
                       value={formData.language}
                       onChange={(e) => setFormData({ ...formData, language: e.target.value })}
+                      aria-label="Language"
                       className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-violet-500 focus:border-transparent bg-white"
                     >
                       <option value="en">English</option>
@@ -350,13 +502,13 @@ export function UploadPage() {
                     </button>
                     <button
                       type="submit"
-                      disabled={uploadMutation.isPending}
+                      disabled={uploadMutation.isPending || isResolvingSpeaker}
                       className="px-6 py-2.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-50 inline-flex items-center gap-2"
                     >
-                      {uploadMutation.isPending ? (
+                      {uploadMutation.isPending || isResolvingSpeaker ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          Uploading...
+                          {isResolvingSpeaker ? 'Preparing speaker...' : 'Uploading...'}
                         </>
                       ) : (
                         <>
