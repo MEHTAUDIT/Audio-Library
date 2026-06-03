@@ -33,6 +33,8 @@ public interface PlaylistRepository extends JpaRepository<Playlist, UUID> {
     @Query("SELECT p FROM Playlist p WHERE p.id = :id AND p.deletedAt IS NULL")
     Optional<Playlist> findActiveById(@Param("id") UUID id);
 
+    Optional<Playlist> findByShareTokenAndDeletedAtIsNull(String shareToken);
+
     /**
      * Find public playlists for discovery.
      */

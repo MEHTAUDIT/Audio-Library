@@ -197,12 +197,16 @@ public class FlywayConfig {
                             "    description TEXT," +
                             "    visibility VARCHAR(20) DEFAULT 'PRIVATE'," +
                             "    tenant_id UUID," +
+                            "    share_token VARCHAR(255)," +
                             "    deleted_at TIMESTAMP," +
                             "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
                             "    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
                             "    CONSTRAINT fk_playlists_user FOREIGN KEY (user_id) REFERENCES \"" + schemaName + "\".users (id) ON DELETE CASCADE" +
                             ")"
             );
+
+            statement.execute("ALTER TABLE \"" + schemaName + "\".playlists ADD COLUMN IF NOT EXISTS share_token VARCHAR(255)");
+            statement.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_share_token ON \"" + schemaName + "\".playlists (share_token)");
 
             statement.execute(
                     "CREATE TABLE IF NOT EXISTS \"" + schemaName + "\".playlist_items (" +

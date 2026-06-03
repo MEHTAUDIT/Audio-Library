@@ -4,6 +4,7 @@ import com.audiolibrary.dto.S3Dtos.*;
 import com.audiolibrary.entity.Tenant;
 import com.audiolibrary.repository.TenantRepository;
 import com.audiolibrary.service.AudioService;
+import com.audiolibrary.service.BulkImportService;
 import com.audiolibrary.service.S3StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -35,6 +36,7 @@ public class S3UploadController {
 
     private final S3StorageService s3StorageService;
     private final AudioService audioService;
+    private final BulkImportService bulkImportService;
     private final TenantRepository tenantRepository;
 
     @Operation(
@@ -128,7 +130,7 @@ public class S3UploadController {
         
         // CHANGED: Wrapped in try/catch and pass fileHash instead of null
         try {
-            audioService.createDraftWithFile(
+            var audio = audioService.createDraftWithFile(
                     title,
                     request.getDescription(),
                     request.getSpeaker(),
@@ -141,6 +143,8 @@ public class S3UploadController {
                     tenant.getId(),
                     fileHash             // CHANGED: was null
             );
+            bulkImportService.linkMetadataByNames(
+                    audio.getId(), tenant.getId(), request.getSpeaker(), request.getTags(), request.getGenres());
         } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
             log.warn("Duplicate S3 upload rejected: {}", e.getMessage());
             return ResponseEntity.status(409).body(Map.of(
@@ -200,7 +204,7 @@ public class S3UploadController {
                 String title = file.getTitle() != null ? file.getTitle() : 
                         file.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
                 
-                audioService.createDraftWithFile(
+                var audio = audioService.createDraftWithFile(
                         title,
                         file.getDescription(),
                         file.getSpeaker(),
@@ -213,6 +217,8 @@ public class S3UploadController {
                         tenant.getId(),
                         fileHash             // CHANGED: was null
                 );
+                bulkImportService.linkMetadataByNames(
+                        audio.getId(), tenant.getId(), file.getSpeaker(), file.getTags(), file.getGenres());
                 
                 succeeded.add(file.getS3Key());
             } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block
@@ -474,7 +480,7 @@ public class S3UploadController {
                 String title = file.getTitle() != null ? file.getTitle() : 
                         file.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
                 
-                audioService.createDraftWithFile(
+                var audio = audioService.createDraftWithFile(
                         title,
                         file.getDescription(),
                         file.getSpeaker(),
@@ -487,6 +493,8 @@ public class S3UploadController {
                         tenant.getId(),
                         fileHash             // CHANGED: was null
                 );
+                bulkImportService.linkMetadataByNames(
+                        audio.getId(), tenant.getId(), file.getSpeaker(), file.getTags(), file.getGenres());
                 
                 succeeded.add(permanentKey);
             } catch (AudioService.DuplicateFileException e) {               // ADDED: catch block

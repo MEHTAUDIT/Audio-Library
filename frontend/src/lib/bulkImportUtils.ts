@@ -245,6 +245,8 @@ export function applyMappingToFile(
     language: [],
     series: [],
     title: [],
+    tags: [],
+    genres: [],
   };
 
   // Apply each level's mapping
@@ -256,7 +258,11 @@ export function applyMappingToFile(
 
     switch (levelMapping.type) {
       case 'map_to_field':
-        accumulated[levelMapping.field] = [value];
+        if (levelMapping.field === 'tags' || levelMapping.field === 'genres') {
+          accumulated[levelMapping.field].push(value);
+        } else {
+          accumulated[levelMapping.field] = [value];
+        }
         break;
         
       case 'append_to_field':
@@ -285,6 +291,12 @@ export function applyMappingToFile(
   }
   if (accumulated.series.length > 0) {
     result.series = accumulated.series.join(mapping.combineSeparator);
+  }
+  if (accumulated.tags.length > 0) {
+    result.tags = Array.from(new Set(accumulated.tags));
+  }
+  if (accumulated.genres.length > 0) {
+    result.genres = Array.from(new Set(accumulated.genres));
   }
 
   return result;

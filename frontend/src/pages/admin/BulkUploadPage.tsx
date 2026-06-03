@@ -200,7 +200,7 @@ export function BulkUploadPage() {
   };
 
   // Apply mapping and generate preview
-  const handleGeneratePreview = () => {
+  const handleGeneratePreview = async () => {
     if (!mapping) return;
     
     if (mode === 'browser') {
@@ -213,19 +213,17 @@ export function BulkUploadPage() {
       const mapped = applyMappingToFiles(fileData, mapping);
       setMappedFiles(mapped);
     } else {
-      // For server mode, we'll get the mapped files from the backend
-      // For now, use the sample files from structure
-      if (structure) {
-        const mapped = structure.sampleFiles.map(path => {
-          const parts = path.split(/[/\\]/);
-          return {
-            originalPath: path,
-            relativePath: path,
-            filename: parts[parts.length - 1],
-            title: parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
-          };
+      try {
+        const response = await api.post<MappedAudioFile[]>('/bulk-import/preview', {
+          sourcePath: serverPath,
+          sourceType: 'path',
+          mapping,
         });
-        setMappedFiles(mapped as MappedAudioFile[]);
+        setMappedFiles(response.data);
+      } catch (error) {
+        console.error('Preview error:', error);
+        alert('Failed to generate the import preview. Please check the server path and mapping.');
+        return;
       }
     }
     
@@ -335,6 +333,8 @@ export function BulkUploadPage() {
             speaker: mappedFile.speaker,
             category: mappedFile.topic,
             description: mappedFile.series,
+            tags: mappedFile.tags,
+            genres: mappedFile.genres,
           });
         }
         completed++;
@@ -391,6 +391,8 @@ export function BulkUploadPage() {
           topic: mappedFile.topic,
           series: mappedFile.series,
           description: mappedFile.series,
+          tags: mappedFile.tags,
+          genres: mappedFile.genres,
         },
       };
     }).filter(item => item.file);

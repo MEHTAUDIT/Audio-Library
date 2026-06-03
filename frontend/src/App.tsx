@@ -20,6 +20,8 @@ import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/Registerpage';
 import { AudioDetailPage } from './pages/library/AudioDetailPage';
 import { LibraryPage } from './pages/library/LibraryPage';
+import { PlaylistsPage } from './pages/library/PlaylistsPage';
+import { PublicPlaylistPage } from './pages/library/PublicPlaylistPage';
 import { QueuePage } from './pages/library/QueuePage';
 import { SpeakerProfilePage } from './pages/SpeakerProfilePage';
 
@@ -69,9 +71,18 @@ function AppRoutes() {
           </PrivateRoute>
         }
       />
+      <Route
+        path="/playlists"
+        element={
+          <PrivateRoute>
+            <PlaylistsPage />
+          </PrivateRoute>
+        }
+      />
         <Route path="/speaker/:speakerId" element={<SpeakerProfilePage />} />
         <Route path="/library/:id" element={<AudioDetailPage />} />
       <Route path="/series/:id" element={<SeriesDetailPage />} />  {/* ADDED */}
+      <Route path="/playlist/:shareToken" element={<PublicPlaylistPage />} />
       <Route
         path="/login"
         element={

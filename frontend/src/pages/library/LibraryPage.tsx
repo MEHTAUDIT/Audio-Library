@@ -11,6 +11,7 @@ import {
   History,
   List,
   ListMusic,
+  Library,
   LogIn,
   LogOut,
   Music2,
@@ -467,6 +468,13 @@ export function LibraryPage() {
                 >
                   <ListMusic className="w-4 h-4" />
                   Open queue page
+                </Link>
+                <Link
+                  to="/playlists"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-sm border border-white/20 hover:bg-white/15 transition-colors"
+                >
+                  <Library className="w-4 h-4" />
+                  My playlists
                 </Link>
                 <button
                   type="button"

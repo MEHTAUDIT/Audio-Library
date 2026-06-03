@@ -34,6 +34,8 @@ export interface ConfirmUploadRequest {
   topic?: string;
   series?: string;
   description?: string;
+  tags?: string[];
+  genres?: string[];
 }
 
 export interface BatchConfirmUploadRequest {
@@ -84,6 +86,8 @@ export interface StagingFileMetadata {
   topic?: string;
   series?: string;
   description?: string;
+  tags?: string[];
+  genres?: string[];
 }
 
 export interface ProcessStagingRequest {

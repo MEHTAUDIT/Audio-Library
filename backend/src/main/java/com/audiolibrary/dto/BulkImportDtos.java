@@ -135,7 +135,7 @@ public class BulkImportDtos {
     @Builder
     public static class LevelMapping {
         private String type; // "map_to_field", "append_to_field", "skip", "filename"
-        private String field; // "speaker", "topic", "language", "series", "title"
+        private String field; // "speaker", "topic", "language", "series", "title", "tags", "genres"
         private String separator; // For append_to_field
     }
 

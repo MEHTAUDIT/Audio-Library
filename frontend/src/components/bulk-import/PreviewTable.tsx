@@ -31,6 +31,8 @@ export function PreviewTable({ files, onFileUpdate, maxPreview = 100 }: PreviewT
     file.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     file.speaker?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     file.topic?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    file.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    file.genres?.some(genre => genre.toLowerCase().includes(searchTerm.toLowerCase())) ||
     file.originalPath.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -210,6 +212,18 @@ export function PreviewTable({ files, onFileUpdate, maxPreview = 100 }: PreviewT
                                   <p className="text-slate-700 mt-1">{file.series}</p>
                                 </div>
                               )}
+                              <MetadataListEditor
+                                label="Tags"
+                                values={file.tags}
+                                placeholder="sermon, sunday, featured"
+                                onSave={(values) => onFileUpdate(index, { ...file, tags: values, isEdited: true })}
+                              />
+                              <MetadataListEditor
+                                label="Genres / Categories"
+                                values={file.genres}
+                                placeholder="Educational, Religious"
+                                onSave={(values) => onFileUpdate(index, { ...file, genres: values, isEdited: true })}
+                              />
                               {hasErrors && (
                                 <div className="col-span-2">
                                   <div className="flex items-center gap-2 text-rose-600">
@@ -247,6 +261,47 @@ export function PreviewTable({ files, onFileUpdate, maxPreview = 100 }: PreviewT
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+interface MetadataListEditorProps {
+  label: string;
+  values?: string[];
+  placeholder: string;
+  onSave: (values: string[]) => void;
+}
+
+function MetadataListEditor({ label, values, placeholder, onSave }: MetadataListEditorProps) {
+  const [value, setValue] = useState((values || []).join(', '));
+
+  const save = () => {
+    const parsed = Array.from(new Set(
+      value.split(',').map(item => item.trim()).filter(Boolean)
+    ));
+    onSave(parsed);
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+        {label}
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            save();
+            event.currentTarget.blur();
+          }
+        }}
+        placeholder={placeholder}
+        className="mt-1 w-full px-2 py-1.5 rounded border border-slate-200 focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
+      />
+      <p className="mt-1 text-xs text-slate-400">Comma-separated values</p>
     </div>
   );
 }

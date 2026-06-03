@@ -34,6 +34,9 @@ public class Playlist extends BaseEntity {
     @Column(name = "tenant_id")
     private UUID tenantId;
 
+    @Column(name = "share_token", unique = true)
+    private String shareToken;
+
     // P1: Soft delete
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;

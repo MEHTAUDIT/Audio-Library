@@ -76,7 +76,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   }, [options.onEnded, revokeObjectUrl]);
 
   const playAudio = useCallback(
-    async (audioItem: Pick<Audio, 'id'> & { mimeType?: string }, playbackOptions: StreamPlaybackOptions = {}) => {
+    async (audioItem: Pick<Audio, 'id'> & { mimeType?: string; streamPath?: string }, playbackOptions: StreamPlaybackOptions = {}) => {
       const audio = mediaRef.current;
       if (!audio) return;
 
@@ -95,7 +95,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
         revokeObjectUrl();
         audio.pause();
 
-        const response = await api.get(`/audio/${audioItem.id}/stream`, {
+        const response = await api.get(audioItem.streamPath ?? `/audio/${audioItem.id}/stream`, {
           responseType: 'blob',
         });
 

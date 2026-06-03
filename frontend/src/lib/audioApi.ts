@@ -8,6 +8,8 @@ export interface AudioUploadData {
   speaker?: string;
   speakerId?: string;
   category?: string;
+  tags?: string[];
+  genres?: string[];
   mimeType?: string;
   sizeBytes?: number;
 }
@@ -70,6 +72,8 @@ export const audioApi = {
     if (data.speaker) formData.append('speaker', data.speaker);
     if (data.speakerId) formData.append('speakerId', data.speakerId);
     if (data.category) formData.append('category', data.category);
+    data.tags?.forEach(tag => formData.append('tags', tag));
+    data.genres?.forEach(genre => formData.append('genres', genre));
     if (data.mimeType) formData.append('mimeType', data.mimeType);
     if (typeof data.sizeBytes === 'number') formData.append('sizeBytes', String(data.sizeBytes));
 

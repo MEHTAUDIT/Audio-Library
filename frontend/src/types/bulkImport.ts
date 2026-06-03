@@ -6,7 +6,7 @@
  */
 
 // Fields that can be extracted from folder structure
-export type AudioField = 'speaker' | 'topic' | 'language' | 'series' | 'title';
+export type AudioField = 'speaker' | 'topic' | 'language' | 'series' | 'title' | 'tags' | 'genres';
 
 // How a folder level maps to audio metadata
 export type LevelMappingType = 
@@ -64,6 +64,8 @@ export interface MappedAudioFile {
   topic?: string;
   language?: string;
   series?: string;
+  tags?: string[];
+  genres?: string[];
   
   // File info
   sizeBytes?: number;
@@ -119,6 +121,16 @@ export const MAPPING_PRESETS: MappingPreset[] = [
       { depth: 0, mapping: { type: 'map_to_field', field: 'speaker' } },
       { depth: 1, mapping: { type: 'map_to_field', field: 'series' } },
       { depth: 2, mapping: { type: 'map_to_field', field: 'topic' } },
+    ],
+  },
+  {
+    id: 'speaker-genre-tag',
+    name: 'Speaker -> Genre -> Tag',
+    description: 'Speaker, then genre/category, then a searchable tag',
+    levels: [
+      { depth: 0, mapping: { type: 'map_to_field', field: 'speaker' } },
+      { depth: 1, mapping: { type: 'map_to_field', field: 'genres' } },
+      { depth: 2, mapping: { type: 'map_to_field', field: 'tags' } },
     ],
   },
   {
