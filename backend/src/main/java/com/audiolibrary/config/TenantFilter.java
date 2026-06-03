@@ -62,6 +62,13 @@ public class TenantFilter extends OncePerRequestFilter {
         String tenantKey = request.getHeader("X-Tenant-ID"); // Typically subdomain
         String resolvedFrom = "header";
 
+        // Browser-native asset requests such as <img src="..."> cannot send the
+        // custom tenant header, so allow generated asset URLs to carry it.
+        if (tenantKey == null || tenantKey.isBlank()) {
+            tenantKey = request.getParameter("tenant");
+            resolvedFrom = "query";
+        }
+
         if (tenantKey == null || tenantKey.isBlank()) {
             String host = request.getServerName();
             tenantKey = resolveTenant(host);

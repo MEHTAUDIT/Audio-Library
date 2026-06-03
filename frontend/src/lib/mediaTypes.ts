@@ -4,11 +4,9 @@ export const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'
 
 export const MEDIA_EXTENSIONS = [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS];
 
-export const MEDIA_ACCEPT_INPUT = [
-  'audio/*',
-  'video/*',
-  ...MEDIA_EXTENSIONS,
-].join(',');
+// Use one extension-only filter for native file dialogs. Windows may otherwise
+// prioritize the first MIME wildcard and hide valid video formats such as MOV.
+export const MEDIA_ACCEPT_INPUT = MEDIA_EXTENSIONS.join(',');
 
 export const MEDIA_DROPZONE_ACCEPT = {
   'audio/*': AUDIO_EXTENSIONS,

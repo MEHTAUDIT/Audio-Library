@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { audioApi, AudioUploadData } from '../../lib/audioApi';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
-import { isMediaFilename } from '../../lib/mediaTypes';
+import { isMediaFilename, MEDIA_ACCEPT_INPUT, MEDIA_DROPZONE_ACCEPT } from '../../lib/mediaTypes';
 import { speakerApi } from '../../lib/speakerApi';
 import type { SpeakerSummary } from '../../types/speaker';
 
@@ -42,6 +42,7 @@ export function UploadPage() {
   const [currentStep, setCurrentStep] = useState<'upload' | 'details' | 'success'>('upload');
   const [selectedSpeaker, setSelectedSpeaker] = useState<SpeakerSummary | null>(null);
   const [speakerError, setSpeakerError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [isResolvingSpeaker, setIsResolvingSpeaker] = useState(false);
   const [debouncedSpeakerQuery, setDebouncedSpeakerQuery] = useState('');
   const [formData, setFormData] = useState<UploadFormData>({
@@ -63,13 +64,13 @@ export function UploadPage() {
   });
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-
     const mediaFiles = acceptedFiles.filter((file) =>
       file.type.startsWith('audio/') ||
       file.type.startsWith('video/') ||
       isMediaFilename(file.name)
     );
     if (mediaFiles.length > 0) {
+      setFileError(null);
       setFiles(mediaFiles);
       // Auto-fill title from filename
       const fileName = mediaFiles[0].name.replace(/\.[^/.]+$/, '');
@@ -83,7 +84,12 @@ export function UploadPage() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    onDropRejected: () => {
+      setFileError('Please select a supported audio or video file.');
+    },
+    accept: MEDIA_DROPZONE_ACCEPT,
     maxFiles: 1,
+    maxSize: 500 * 1024 * 1024,
   });
 
   useEffect(() => {
@@ -171,6 +177,7 @@ export function UploadPage() {
     setFiles([]);
     setSelectedSpeaker(null);
     setSpeakerError(null);
+    setFileError(null);
     setIsResolvingSpeaker(false);
     setFormData({
       title: '',
@@ -270,7 +277,7 @@ export function UploadPage() {
                       : 'border-slate-300 hover:border-violet-400 hover:bg-slate-50'
                   }`}
                 >
-                  <input {...getInputProps()} />
+                  <input {...getInputProps({ accept: MEDIA_ACCEPT_INPUT })} />
                   <div className="flex flex-col items-center gap-4">
                     <div
                       className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-colors ${
@@ -295,6 +302,12 @@ export function UploadPage() {
                     </div>
                   </div>
                 </div>
+                {fileError && (
+                  <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>{fileError}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>

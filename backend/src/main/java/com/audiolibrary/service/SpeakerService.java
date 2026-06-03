@@ -22,10 +22,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,10 +38,16 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SpeakerService {
 
+    private static final String STORAGE_AVATAR_PREFIX = "storage:";
+    private static final long MAX_PROFILE_IMAGE_SIZE_BYTES = 5L * 1024 * 1024;
+    private static final Set<String> ALLOWED_PROFILE_IMAGE_TYPES = Set.of(
+            "image/jpeg", "image/png", "image/webp", "image/gif");
+
     private final SpeakerRepository speakerRepository;
     private final AudioSpeakerJoinRepository audioSpeakerJoinRepository;
     private final AudioRepository audioRepository;
     private final UserFavoriteSpeakerJoinRepository favoriteSpeakerJoinRepository;
+    private final StorageService storageService;
 
     /**
      * Create a new speaker.
@@ -106,7 +115,7 @@ public class SpeakerService {
                 .map(speaker -> AudioResponse.SpeakerResponse.builder()
                         .id(speaker.getId())
                         .name(speaker.getName())
-                        .avatarUrl(speaker.getAvatarUrl())
+                        .avatarUrl(getPublicAvatarUrl(speaker))
                         .build())
                 .toList();
     }
@@ -115,12 +124,7 @@ public class SpeakerService {
      * Update speaker details.
      */
     public AudioResponse.SpeakerProfileResponse updateSpeaker(UUID tenantId, UUID speakerId, SpeakerUpsertRequest request) {
-        Speaker speaker = speakerRepository.findActiveById(speakerId)
-                .orElseThrow(() -> new IllegalArgumentException("Speaker not found: " + speakerId));
-
-        if (!tenantId.equals(speaker.getTenantId())) {
-            throw new IllegalArgumentException("Speaker not found: " + speakerId);
-        }
+        Speaker speaker = getSpeakerForTenant(tenantId, speakerId);
 
         if (StringUtils.hasText(request.getName())) {
             validateSpeakerName(tenantId, request.getName(), speakerId);
@@ -140,6 +144,46 @@ public class SpeakerService {
         log.info("Updated speaker: id={} name='{}'", saved.getId(), saved.getName());
 
         return buildSpeakerProfileResponse(saved);
+    }
+
+    public AudioResponse.SpeakerProfileResponse updateProfileImage(
+            UUID tenantId,
+            UUID speakerId,
+            MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Profile image file is required");
+        }
+        if (file.getSize() > MAX_PROFILE_IMAGE_SIZE_BYTES) {
+            throw new IllegalArgumentException("Profile image must be 5MB or smaller");
+        }
+        String contentType = file.getContentType();
+        if (!StringUtils.hasText(contentType) || !ALLOWED_PROFILE_IMAGE_TYPES.contains(contentType.toLowerCase())) {
+            throw new IllegalArgumentException("Profile image must be a JPG, PNG, WEBP, or GIF file");
+        }
+
+        Speaker speaker = getSpeakerForTenant(tenantId, speakerId);
+        String previousAvatar = speaker.getAvatarUrl();
+        String storageKey = storageService.storeFile(file, tenantId);
+
+        speaker.setAvatarUrl(STORAGE_AVATAR_PREFIX + storageKey);
+        Speaker saved = speakerRepository.save(speaker);
+
+        if (isStoredAvatar(previousAvatar)) {
+            storageService.deleteFile(previousAvatar.substring(STORAGE_AVATAR_PREFIX.length()));
+        }
+
+        log.info("Updated speaker profile image: id={} tenant={}", speakerId, tenantId);
+        return buildSpeakerProfileResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public String getProfileImageStorageKey(UUID speakerId) {
+        Speaker speaker = speakerRepository.findActiveById(speakerId)
+                .orElseThrow(() -> new IllegalArgumentException("Speaker not found: " + speakerId));
+        if (!isStoredAvatar(speaker.getAvatarUrl())) {
+            throw new IllegalArgumentException("Speaker does not have an uploaded profile image");
+        }
+        return speaker.getAvatarUrl().substring(STORAGE_AVATAR_PREFIX.length());
     }
 
     /**
@@ -230,15 +274,11 @@ public class SpeakerService {
 
 
     @Transactional(readOnly = true)
-    public ResponseEntity<AudioResponse.SpeakerProfileResponse> getSpeaker(UUID speakerId) {
+    public ResponseEntity<AudioResponse.SpeakerProfileResponse> getSpeaker(UUID tenantId, UUID speakerId) {
 
         log.info("Current tenant: {}", TenantContext.getCurrentTenant());
 
-        Speaker speaker = speakerRepository.findActiveById(speakerId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException(
-                                "Speaker not found: " + speakerId
-                        ));
+        Speaker speaker = getSpeakerForTenant(tenantId, speakerId);
 
         List<AudioResponse> audios = audioRepository
                 .findAllBySpeakerId(speakerId)
@@ -251,7 +291,7 @@ public class SpeakerService {
                         .speakerId(speaker.getId())
                         .name(speaker.getName())
                         .bio(speaker.getBio())
-                        .profileImageUrl(speaker.getAvatarUrl())
+                        .profileImageUrl(getPublicAvatarUrl(speaker))
                         .websiteUrl(speaker.getWebsiteUrl())
                         .totalAudioCount((long) audios.size())
                         .audios(audios)
@@ -279,6 +319,28 @@ public class SpeakerService {
         return value.trim();
     }
 
+    private Speaker getSpeakerForTenant(UUID tenantId, UUID speakerId) {
+        Speaker speaker = speakerRepository.findActiveById(speakerId)
+                .orElseThrow(() -> new IllegalArgumentException("Speaker not found: " + speakerId));
+        if (!tenantId.equals(speaker.getTenantId())) {
+            throw new IllegalArgumentException("Speaker not found: " + speakerId);
+        }
+        return speaker;
+    }
+
+    private boolean isStoredAvatar(String avatarUrl) {
+        return StringUtils.hasText(avatarUrl) && avatarUrl.startsWith(STORAGE_AVATAR_PREFIX);
+    }
+
+    private String getPublicAvatarUrl(Speaker speaker) {
+        if (isStoredAvatar(speaker.getAvatarUrl())) {
+            String storageKey = speaker.getAvatarUrl().substring(STORAGE_AVATAR_PREFIX.length());
+            String version = Integer.toUnsignedString(storageKey.hashCode());
+            return "/api/v1/speaker/" + speaker.getId() + "/profile-image?v=" + version;
+        }
+        return speaker.getAvatarUrl();
+    }
+
     private AudioResponse.SpeakerProfileResponse buildSpeakerProfileResponse(Speaker speaker) {
         List<AudioResponse> audios = audioRepository
                 .findAllBySpeakerId(speaker.getId())
@@ -291,7 +353,7 @@ public class SpeakerService {
                 .name(speaker.getName())
                 .bio(speaker.getBio())
                 .websiteUrl(speaker.getWebsiteUrl())
-                .profileImageUrl(speaker.getAvatarUrl())
+                .profileImageUrl(getPublicAvatarUrl(speaker))
                 .totalAudioCount((long) audios.size())
                 .audios(audios)
                 .build();
