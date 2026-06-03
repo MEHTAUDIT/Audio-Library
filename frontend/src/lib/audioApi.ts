@@ -12,6 +12,7 @@ export interface AudioUploadData {
   genres?: string[];
   mimeType?: string;
   sizeBytes?: number;
+  durationSeconds?: number;
 }
 
 export const audioApi = {
@@ -76,6 +77,9 @@ export const audioApi = {
     data.genres?.forEach(genre => formData.append('genres', genre));
     if (data.mimeType) formData.append('mimeType', data.mimeType);
     if (typeof data.sizeBytes === 'number') formData.append('sizeBytes', String(data.sizeBytes));
+    if (typeof data.durationSeconds === 'number' && data.durationSeconds > 0) {
+      formData.append('durationSeconds', String(data.durationSeconds));
+    }
 
     const response = await api.post<Audio>('/audio', formData, {
       headers: {

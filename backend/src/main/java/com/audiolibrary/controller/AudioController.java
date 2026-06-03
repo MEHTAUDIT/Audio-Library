@@ -171,6 +171,8 @@ public class AudioController {
             @RequestPart(value = "tags", required = false) List<String> tags,
             @Parameter(description = "Genre/category names (optional)")
             @RequestPart(value = "genres", required = false) List<String> genres,
+            @Parameter(description = "Client-detected media duration in seconds (optional fallback)")
+            @RequestParam(value = "durationSeconds", required = false) Long clientDurationSeconds,
             @Parameter(description = "Tenant subdomain (e.g., 'demo')")
             @RequestHeader(value = "X-Tenant-ID", required = false) String tenantSubdomain) throws IOException {
         
@@ -188,6 +190,10 @@ public class AudioController {
         
         // Get audio duration from stored file
         long durationSeconds = storageService.getAudioDuration(storageKey);
+        if (durationSeconds <= 0 && clientDurationSeconds != null && clientDurationSeconds > 0) {
+            durationSeconds = clientDurationSeconds;
+            log.info("Using client-detected media duration: {} seconds for {}", durationSeconds, file.getOriginalFilename());
+        }
         
         try {
             AudioResponse response = audioService.createDraftWithFile(

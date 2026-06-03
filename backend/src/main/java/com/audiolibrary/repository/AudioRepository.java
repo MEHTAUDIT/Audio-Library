@@ -21,6 +21,7 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     @Query("""
     SELECT DISTINCT a
     FROM Audio a
+    LEFT JOIN FETCH a.series
     LEFT JOIN FETCH a.audioSpeakers asp
     LEFT JOIN FETCH asp.speaker
     WHERE a.deletedAt IS NULL
@@ -30,6 +31,7 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     @Query("""
     SELECT DISTINCT a
     FROM Audio a
+    LEFT JOIN FETCH a.series
     LEFT JOIN FETCH a.audioSpeakers asp
     LEFT JOIN FETCH asp.speaker
     WHERE a.status = :status AND a.deletedAt IS NULL
@@ -39,6 +41,7 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     @Query("""
     SELECT DISTINCT a
     FROM Audio a
+    LEFT JOIN FETCH a.series
     LEFT JOIN FETCH a.audioSpeakers asp
     LEFT JOIN FETCH asp.speaker
     WHERE a.id = :id
@@ -67,6 +70,7 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     @Query("""
     SELECT DISTINCT a
     FROM Audio a
+    LEFT JOIN FETCH a.series
     JOIN a.audioSpeakers asp
     WHERE asp.speaker.id = :speakerId
     AND a.deletedAt IS NULL

@@ -30,6 +30,7 @@ import {
   calculateTotalSize,
 } from '../../lib/bulkImportUtils';
 import { audioApi } from '../../lib/audioApi';
+import { getMediaDurationSeconds } from '../../lib/mediaMetadata';
 import { api } from '../../lib/api';
 import { s3Api, type UploadProgress as S3UploadProgress, isDuplicateError, parseDuplicateMessage, splitDuplicatesAndErrors } from '../../lib/s3Api';
 import { isMediaFilename } from '../../lib/mediaTypes';
@@ -365,6 +366,7 @@ export function BulkUploadPage() {
         );
         
         if (file) {
+          const durationSeconds = await getMediaDurationSeconds(file);
           await audioApi.upload({
             file,
             title: mappedFile.title,
@@ -373,6 +375,7 @@ export function BulkUploadPage() {
             description: mappedFile.series,
             tags: mappedFile.tags,
             genres: mappedFile.genres,
+            durationSeconds,
           });
         }
         completed++;

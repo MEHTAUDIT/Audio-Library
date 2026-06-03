@@ -18,6 +18,7 @@ import { audioApi, AudioUploadData } from '../../lib/audioApi';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
 import { isMediaFilename, MEDIA_ACCEPT_INPUT, MEDIA_DROPZONE_ACCEPT } from '../../lib/mediaTypes';
 import { speakerApi } from '../../lib/speakerApi';
+import { getMediaDurationSeconds } from '../../lib/mediaMetadata';
 import type { SpeakerSummary } from '../../types/speaker';
 
 interface FileWithPreview extends File {
@@ -155,6 +156,7 @@ export function UploadPage() {
       setSpeakerError(null);
       setIsResolvingSpeaker(true);
       const speakerFields = await resolveSpeakerForUpload();
+      const durationSeconds = await getMediaDurationSeconds(file);
       setIsResolvingSpeaker(false);
 
       uploadMutation.mutate({
@@ -166,6 +168,7 @@ export function UploadPage() {
         category: formData.topic || undefined,
         mimeType: file.type || undefined,
         sizeBytes: file.size,
+        durationSeconds,
       });
     } catch (error) {
       setIsResolvingSpeaker(false);

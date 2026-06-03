@@ -18,4 +18,5 @@ public class AudioUpdateRequest {
     private UUID speakerId;
     private UUID seriesId;
     private Integer seriesOrder;
+    private Long durationSeconds;
 }

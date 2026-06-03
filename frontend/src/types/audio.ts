@@ -99,6 +99,7 @@ export interface AudioUpdateRequest {
   description?: string;
   speaker?: string;
   speakerId?: string;
+  durationSeconds?: number;
   topic?: string;
   language?: string;
   genreIds?: string[];

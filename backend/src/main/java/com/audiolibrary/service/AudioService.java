@@ -316,6 +316,7 @@ public class AudioService {
     /**
      * Get all published audio
      */
+    @Transactional(readOnly = true)
     public List<AudioResponse> getPublishedAudio() {
         return getAllAudio(Audio.Status.PUBLISHED);
     }
@@ -353,6 +354,11 @@ public class AudioService {
         }
         if (request.getLanguage() != null) {
             audio.setLanguage(request.getLanguage());
+        }
+        if ((audio.getDurationSeconds() == null || audio.getDurationSeconds() <= 0)
+                && request.getDurationSeconds() != null
+                && request.getDurationSeconds() > 0) {
+            audio.setDurationSeconds(request.getDurationSeconds());
         }
         // Series assignment
         if (request.getSeriesId() != null) {

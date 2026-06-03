@@ -225,9 +225,8 @@ export const s3Api = {
    */
   isEnabled: async (): Promise<boolean> => {
     try {
-      // Try to hit the S3 endpoint - if it works, S3 is enabled
-      await api.post('/s3/upload-url', { filename: 'test.mp3', contentType: 'audio/mpeg' });
-      return true;
+      const response = await api.get<{ s3Enabled: boolean }>('/storage/capabilities');
+      return response.data.s3Enabled;
     } catch {
       return false;
     }

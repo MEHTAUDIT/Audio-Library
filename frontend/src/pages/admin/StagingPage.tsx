@@ -17,7 +17,7 @@ import {
   User,
   X
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { BulkActionBar } from '../../components/admin/BulkActionBar';
 import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
@@ -33,6 +33,7 @@ export function StagingPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<AudioUpdateRequest>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const repairedDurationIds = useRef<Set<string>>(new Set());
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const { data: allSeries } = useQuery({
     queryKey: ['series'],
@@ -80,6 +81,22 @@ export function StagingPage() {
       queryClient.invalidateQueries({ queryKey: ['audioStats'] });
     },
   });
+
+  useEffect(() => {
+    if (!playingAudioId || duration <= 0 || repairedDurationIds.current.has(playingAudioId)) {
+      return;
+    }
+
+    const activeAudio = stagingAudio?.find((audio) => audio.id === playingAudioId);
+    if (!activeAudio || activeAudio.durationSeconds > 0) {
+      return;
+    }
+
+    repairedDurationIds.current.add(playingAudioId);
+    audioApi.update(playingAudioId, { durationSeconds: Math.round(duration) })
+      .then(() => queryClient.invalidateQueries({ queryKey: ['stagingAudio'] }))
+      .catch(() => repairedDurationIds.current.delete(playingAudioId));
+  }, [duration, playingAudioId, queryClient, stagingAudio]);
 
   const handleBulkSuccess = (result: BulkActionResult) => {
     setBulkResult(
