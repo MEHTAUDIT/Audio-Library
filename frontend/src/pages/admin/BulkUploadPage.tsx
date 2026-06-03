@@ -55,6 +55,7 @@ export function BulkUploadPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quickUploadRef = useRef<HTMLInputElement>(null);
+  const zipInputRef = useRef<HTMLInputElement>(null);
 
   // State
   // CHANGED: Default to 'server' mode — S3 check will switch to 'browser' if S3 is enabled
@@ -68,6 +69,8 @@ export function BulkUploadPage() {
   
   // Server mode state
   const [serverPath, setServerPath] = useState('');
+  const [serverSourceType, setServerSourceType] = useState<'path' | 'zip'>('path');
+  const [zipFileName, setZipFileName] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   
   // S3 mode state
@@ -186,14 +189,48 @@ export function BulkUploadPage() {
     setIsScanning(true);
     try {
       // Call backend API to scan the path using the api client (includes auth token)
-      const response = await api.post('/bulk-import/scan', { sourcePath: serverPath });
+      const response = await api.post('/bulk-import/scan', { sourcePath: serverPath, sourceType: 'path' });
       
+      setServerSourceType('path');
+      setZipFileName('');
       setStructure(response.data.structure);
       setMapping(response.data.suggestedMapping);
       setStep('configure');
     } catch (error) {
       console.error('Scan error:', error);
       alert('Failed to scan the specified path. Please check the path and try again.');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleZipUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const zipFile = event.target.files?.[0];
+    event.target.value = '';
+    if (!zipFile) return;
+
+    if (!zipFile.name.toLowerCase().endsWith('.zip')) {
+      alert('Please select a ZIP archive.');
+      return;
+    }
+
+    setIsScanning(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', zipFile);
+      const response = await api.post('/bulk-import/scan-zip', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      setServerPath(response.data.structure.rootPath);
+      setServerSourceType('zip');
+      setZipFileName(zipFile.name);
+      setStructure(response.data.structure);
+      setMapping(response.data.suggestedMapping);
+      setStep('configure');
+    } catch (error) {
+      console.error('ZIP scan error:', error);
+      alert('Failed to scan the ZIP archive. Make sure it contains supported audio or video files.');
     } finally {
       setIsScanning(false);
     }
@@ -216,7 +253,7 @@ export function BulkUploadPage() {
       try {
         const response = await api.post<MappedAudioFile[]>('/bulk-import/preview', {
           sourcePath: serverPath,
-          sourceType: 'path',
+          sourceType: serverSourceType,
           mapping,
         });
         setMappedFiles(response.data);
@@ -278,6 +315,7 @@ export function BulkUploadPage() {
         
         const result = await api.post('/bulk-import/execute', {
           sourcePath: serverPath,
+          sourceType: serverSourceType,
           mapping: mapping,
           files: mappedFiles,
         });
@@ -720,14 +758,28 @@ export function BulkUploadPage() {
                   {/* ZIP upload option */}
                   <div className="pt-4 border-t border-slate-200">
                     <p className="text-sm text-slate-500 mb-3">Or upload a ZIP archive:</p>
+                    <input
+                      ref={zipInputRef}
+                      type="file"
+                      accept=".zip,application/zip"
+                      onChange={handleZipUpload}
+                      className="hidden"
+                    />
                     <button
-                      onClick={() => {/* TODO: ZIP upload */}}
+                      type="button"
+                      onClick={() => zipInputRef.current?.click()}
+                      disabled={isScanning}
                       className="px-4 py-2.5 rounded-lg border border-slate-300 text-slate-700 
-                                 font-medium hover:bg-slate-50 inline-flex items-center gap-2"
+                                 font-medium hover:bg-slate-50 inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <FileArchive className="w-4 h-4" />
-                      Upload ZIP File
+                      {isScanning ? 'Scanning ZIP...' : 'Upload ZIP File'}
                     </button>
+                    {zipFileName && (
+                      <p className="mt-2 text-sm text-slate-600">
+                        Selected archive: <span className="font-medium text-slate-800">{zipFileName}</span>
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>

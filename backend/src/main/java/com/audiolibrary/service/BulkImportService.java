@@ -7,18 +7,28 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class BulkImportService {
+
+    private static final int MAX_ZIP_ENTRIES = 10_000;
+    private static final long MAX_ZIP_EXTRACTED_BYTES = 2L * 1024 * 1024 * 1024;
+    private static final Path ZIP_IMPORT_ROOT = Paths.get(System.getProperty("java.io.tmpdir"), "audio-library-bulk-imports")
+            .toAbsolutePath()
+            .normalize();
 
     private final AudioService audioService;
     private final StorageService storageService;
@@ -197,6 +207,118 @@ public class BulkImportService {
     private String joinValues(List<String> values, String separator) {
         if (values == null || values.isEmpty()) return null;
         return String.join(separator, values);
+    }
+
+    public ScanResponse extractAndScanZip(MultipartFile zipFile) throws IOException {
+        if (zipFile == null || zipFile.isEmpty()) {
+            throw new IllegalArgumentException("ZIP file is required");
+        }
+        String filename = Optional.ofNullable(zipFile.getOriginalFilename()).orElse("");
+        if (!filename.toLowerCase().endsWith(".zip")) {
+            throw new IllegalArgumentException("Only ZIP archives are supported");
+        }
+
+        Files.createDirectories(ZIP_IMPORT_ROOT);
+        Path extractionRoot = ZIP_IMPORT_ROOT.resolve(UUID.randomUUID().toString()).normalize();
+        Files.createDirectories(extractionRoot);
+
+        int entryCount = 0;
+        long extractedBytes = 0;
+        int mediaFileCount = 0;
+
+        try (InputStream inputStream = zipFile.getInputStream();
+             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
+            ZipEntry entry;
+            while ((entry = zipInputStream.getNextEntry()) != null) {
+                entryCount++;
+                if (entryCount > MAX_ZIP_ENTRIES) {
+                    throw new IllegalArgumentException("ZIP archive contains too many entries");
+                }
+
+                Path target = extractionRoot.resolve(entry.getName()).normalize();
+                if (!target.startsWith(extractionRoot)) {
+                    throw new IllegalArgumentException("ZIP archive contains an invalid path");
+                }
+
+                if (entry.isDirectory()) {
+                    Files.createDirectories(target);
+                    continue;
+                }
+                if (!isAudioFile(target.getFileName().toString())) {
+                    continue;
+                }
+
+                Files.createDirectories(target.getParent());
+                try (var output = Files.newOutputStream(target, StandardOpenOption.CREATE_NEW)) {
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = zipInputStream.read(buffer)) != -1) {
+                        extractedBytes += read;
+                        if (extractedBytes > MAX_ZIP_EXTRACTED_BYTES) {
+                            throw new IllegalArgumentException("ZIP archive is too large after extraction");
+                        }
+                        output.write(buffer, 0, read);
+                    }
+                }
+                mediaFileCount++;
+            }
+        } catch (IOException | RuntimeException error) {
+            deleteDirectoryQuietly(extractionRoot);
+            throw error;
+        }
+
+        if (mediaFileCount == 0) {
+            deleteDirectoryQuietly(extractionRoot);
+            throw new IllegalArgumentException("ZIP archive does not contain supported audio or video files");
+        }
+
+        log.info("Extracted ZIP archive: filename={} entries={} mediaFiles={} path={}",
+                filename, entryCount, mediaFileCount, extractionRoot);
+        return scanDirectory(extractionRoot.toString());
+    }
+
+    public void cleanupZipImport(String sourcePath) {
+        if (sourcePath == null || sourcePath.isBlank()) {
+            return;
+        }
+        Path path = Paths.get(sourcePath).toAbsolutePath().normalize();
+        if (!ZIP_IMPORT_ROOT.equals(path.getParent()) || !isUuidDirectoryName(path.getFileName().toString())) {
+            log.warn("Refusing to clean up non-ZIP import path: {}", sourcePath);
+            return;
+        }
+        deleteDirectoryQuietly(path);
+    }
+
+    private boolean isUuidDirectoryName(String value) {
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
+    }
+
+    private void deleteDirectoryQuietly(Path root) {
+        if (root == null || !Files.exists(root)) {
+            return;
+        }
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    Files.deleteIfExists(file);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                    Files.deleteIfExists(dir);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException error) {
+            log.warn("Unable to clean up ZIP import directory {}: {}", root, error.getMessage());
+        }
     }
 
     private List<String> distinctValues(List<String> values) {
