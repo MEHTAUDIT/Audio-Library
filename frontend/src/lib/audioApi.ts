@@ -1,4 +1,4 @@
-import type { Audio, AudioStats, AudioUpdateRequest } from '../types/audio';
+import type { Audio, AudioStats, AudioUpdateRequest, BulkActionResult } from '../types/audio';
 import { api } from './api';
 
 export interface AudioUploadData {
@@ -111,6 +111,21 @@ export const audioApi = {
   // Archive audio
   archive: async (id: string): Promise<Audio> => {
     const response = await api.post<Audio>(`/audio/${id}/archive`);
+    return response.data;
+  },
+
+  bulkPublish: async (ids: string[]): Promise<BulkActionResult> => {
+    const response = await api.post<BulkActionResult>('/audio/bulk-publish', ids);
+    return response.data;
+  },
+
+  bulkUnpublish: async (ids: string[]): Promise<BulkActionResult> => {
+    const response = await api.post<BulkActionResult>('/audio/bulk-unpublish', ids);
+    return response.data;
+  },
+
+  bulkArchive: async (ids: string[]): Promise<BulkActionResult> => {
+    const response = await api.post<BulkActionResult>('/audio/bulk-archive', ids);
     return response.data;
   },
 

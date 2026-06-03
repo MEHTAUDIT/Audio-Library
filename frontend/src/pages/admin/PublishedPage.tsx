@@ -18,16 +18,20 @@ import {
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
+import { BulkActionBar } from '../../components/admin/BulkActionBar';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
 import { audioApi } from '../../lib/audioApi';
 import { useAudioPlayback } from '../../lib/useAudioPlayback'; // ADDED: reuse existing playback hook
 import { isVideo } from '../../types/audio';
+import type { BulkActionResult } from '../../types/audio';
 
 export function PublishedPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
 
   // ADDED: Reuse the app's existing playback hook — same one used in Library/Series pages
   const {
@@ -63,11 +67,59 @@ export function PublishedPage() {
     },
   });
 
+  const handleBulkSuccess = (result: BulkActionResult) => {
+    setBulkResult(
+      `${result.successCount} ${result.action} action${result.successCount === 1 ? '' : 's'} succeeded` +
+      (result.skippedCount > 0 ? `, ${result.skippedCount} skipped` : '') +
+      (result.failedCount > 0 ? `, ${result.failedCount} failed` : '')
+    );
+    setSelectedIds(new Set());
+    queryClient.invalidateQueries({ queryKey: ['publishedAudio'] });
+    queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
+    queryClient.invalidateQueries({ queryKey: ['allAudio'] });
+    queryClient.invalidateQueries({ queryKey: ['audioStats'] });
+  };
+
+  const bulkUnpublishMutation = useMutation({
+    mutationFn: audioApi.bulkUnpublish,
+    onSuccess: handleBulkSuccess,
+  });
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: audioApi.bulkArchive,
+    onSuccess: handleBulkSuccess,
+  });
+
   const filteredAudio = publishedAudio?.filter((audio) =>
     audio.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     audio.speaker?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     audio.topic?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const visibleIds = filteredAudio?.map(audio => audio.id) ?? [];
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+  const isBulkPending = bulkUnpublishMutation.isPending || bulkArchiveMutation.isPending;
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+    setBulkResult(null);
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        visibleIds.forEach(id => next.delete(id));
+      } else {
+        visibleIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+    setBulkResult(null);
+  };
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -197,6 +249,37 @@ export function PublishedPage() {
         </button>
       </motion.div>
 
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        visibleCount={visibleIds.length}
+        allVisibleSelected={allVisibleSelected}
+        onToggleAllVisible={toggleAllVisible}
+        onClear={() => setSelectedIds(new Set())}
+      >
+        <button
+          onClick={() => bulkUnpublishMutation.mutate(Array.from(selectedIds))}
+          disabled={selectedIds.size === 0 || isBulkPending}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-300 text-amber-700 text-sm font-medium hover:bg-amber-50 disabled:opacity-50"
+        >
+          {bulkUnpublishMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <EyeOff className="w-4 h-4" />}
+          Move to staging
+        </button>
+        <button
+          onClick={() => {
+            if (confirm(`Archive ${selectedIds.size} selected item${selectedIds.size === 1 ? '' : 's'}?`)) {
+              bulkArchiveMutation.mutate(Array.from(selectedIds));
+            }
+          }}
+          disabled={selectedIds.size === 0 || isBulkPending}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
+        >
+          {bulkArchiveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+          Archive selected
+        </button>
+      </BulkActionBar>
+
+      {bulkResult && <p className="text-sm text-emerald-700" role="status">{bulkResult}</p>}
+
       {/* Audio Grid */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
@@ -222,10 +305,19 @@ export function PublishedPage() {
                 >
                   {/* CHANGED: Added ring highlight when playing */}
                   <Card className={`h-full hover:shadow-lg transition-all group ${
-                    isCurrentlyPlaying ? 'ring-2 ring-emerald-400 shadow-lg' : ''
+                    selectedIds.has(audio.id)
+                      ? 'ring-2 ring-violet-400 shadow-lg'
+                      : isCurrentlyPlaying ? 'ring-2 ring-emerald-400 shadow-lg' : ''
                   }`}>
                     <CardContent className="p-5">
                       <div className="flex items-start gap-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(audio.id)}
+                          onChange={() => toggleSelected(audio.id)}
+                          className="mt-5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                          aria-label={`Select ${audio.title}`}
+                        />
                         {/* CHANGED: Play button — was static icon, now functional */}
                         <button
                           onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}

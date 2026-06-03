@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  Archive,
   CheckCircle,
   Clock,
   Edit3,
@@ -18,18 +19,21 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
+import { BulkActionBar } from '../../components/admin/BulkActionBar';
 import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
 import { audioApi } from '../../lib/audioApi';
 import { seriesApi } from '../../lib/seriesApi';
 import { useAudioPlayback } from '../../lib/useAudioPlayback';
-import type { Audio, AudioUpdateRequest } from '../../types/audio';
+import type { Audio, AudioUpdateRequest, BulkActionResult } from '../../types/audio';
 export function StagingPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<AudioUpdateRequest>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
   const { data: allSeries } = useQuery({
     queryKey: ['series'],
     queryFn: seriesApi.getAll,
@@ -77,11 +81,59 @@ export function StagingPage() {
     },
   });
 
+  const handleBulkSuccess = (result: BulkActionResult) => {
+    setBulkResult(
+      `${result.successCount} ${result.action} action${result.successCount === 1 ? '' : 's'} succeeded` +
+      (result.skippedCount > 0 ? `, ${result.skippedCount} skipped` : '') +
+      (result.failedCount > 0 ? `, ${result.failedCount} failed` : '')
+    );
+    setSelectedIds(new Set());
+    queryClient.invalidateQueries({ queryKey: ['stagingAudio'] });
+    queryClient.invalidateQueries({ queryKey: ['publishedAudio'] });
+    queryClient.invalidateQueries({ queryKey: ['allAudio'] });
+    queryClient.invalidateQueries({ queryKey: ['audioStats'] });
+  };
+
+  const bulkPublishMutation = useMutation({
+    mutationFn: audioApi.bulkPublish,
+    onSuccess: handleBulkSuccess,
+  });
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: audioApi.bulkArchive,
+    onSuccess: handleBulkSuccess,
+  });
+
   const filteredAudio = stagingAudio?.filter((audio) =>
     audio.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     audio.speaker?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     audio.topic?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const visibleIds = filteredAudio?.map(audio => audio.id) ?? [];
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+  const isBulkPending = bulkPublishMutation.isPending || bulkArchiveMutation.isPending;
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+    setBulkResult(null);
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedIds(current => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        visibleIds.forEach(id => next.delete(id));
+      } else {
+        visibleIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+    setBulkResult(null);
+  };
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -164,6 +216,37 @@ export function StagingPage() {
         </button>
       </motion.div>
 
+      <BulkActionBar
+        selectedCount={selectedIds.size}
+        visibleCount={visibleIds.length}
+        allVisibleSelected={allVisibleSelected}
+        onToggleAllVisible={toggleAllVisible}
+        onClear={() => setSelectedIds(new Set())}
+      >
+        <button
+          onClick={() => bulkPublishMutation.mutate(Array.from(selectedIds))}
+          disabled={selectedIds.size === 0 || isBulkPending}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {bulkPublishMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+          Publish selected
+        </button>
+        <button
+          onClick={() => {
+            if (confirm(`Archive ${selectedIds.size} selected item${selectedIds.size === 1 ? '' : 's'}?`)) {
+              bulkArchiveMutation.mutate(Array.from(selectedIds));
+            }
+          }}
+          disabled={selectedIds.size === 0 || isBulkPending}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+        >
+          {bulkArchiveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+          Archive selected
+        </button>
+      </BulkActionBar>
+
+      {bulkResult && <p className="text-sm text-emerald-700" role="status">{bulkResult}</p>}
+
       {/* Audio List */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
@@ -185,7 +268,7 @@ export function StagingPage() {
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ delay: index * 0.05 }}
               >
-                <Card className="hover:shadow-md transition-shadow">
+                <Card className={`hover:shadow-md transition-shadow ${selectedIds.has(audio.id) ? 'ring-2 ring-violet-400' : ''}`}>
                   <CardContent className="p-5">
                     {editingId === audio.id ? (
                       // Edit Mode
@@ -283,6 +366,13 @@ export function StagingPage() {
                     ) : (
                       // View Mode
                       <div className="flex items-start gap-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(audio.id)}
+                          onChange={() => toggleSelected(audio.id)}
+                          className="mt-5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                          aria-label={`Select ${audio.title}`}
+                        />
                         {/* Play Button */}
                         <button
                           onClick={() => playAudio({ id: audio.id, mimeType: audio.mimeType })}
