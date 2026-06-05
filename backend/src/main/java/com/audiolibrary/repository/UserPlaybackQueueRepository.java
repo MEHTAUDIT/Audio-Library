@@ -17,13 +17,31 @@ public interface UserPlaybackQueueRepository extends JpaRepository<UserPlaybackQ
     /**
      * Find all queue items for a user, ordered by position.
      */
-    @Query("SELECT q FROM UserPlaybackQueue q JOIN FETCH q.audio WHERE q.user.id = :userId ORDER BY q.position")
+    @Query("""
+           SELECT DISTINCT q
+           FROM UserPlaybackQueue q
+           JOIN FETCH q.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE q.user.id = :userId
+           ORDER BY q.position
+           """)
     List<UserPlaybackQueue> findAllByUserIdOrderByPosition(@Param("userId") UUID userId);
 
     /**
      * Find queue items by user, ordered by position.
      */
-    @Query("SELECT q FROM UserPlaybackQueue q JOIN FETCH q.audio WHERE q.user.id = :userId ORDER BY q.position")
+    @Query("""
+           SELECT DISTINCT q
+           FROM UserPlaybackQueue q
+           JOIN FETCH q.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE q.user.id = :userId
+           ORDER BY q.position
+           """)
     List<UserPlaybackQueue> findByUserIdOrderByPosition(@Param("userId") UUID userId);
 
     /**
@@ -34,7 +52,15 @@ public interface UserPlaybackQueueRepository extends JpaRepository<UserPlaybackQ
     /**
      * Find the next item in queue (position 1).
      */
-    @Query("SELECT q FROM UserPlaybackQueue q JOIN FETCH q.audio WHERE q.user.id = :userId AND q.position = 1")
+    @Query("""
+           SELECT DISTINCT q
+           FROM UserPlaybackQueue q
+           JOIN FETCH q.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE q.user.id = :userId AND q.position = 1
+           """)
     Optional<UserPlaybackQueue> findNextInQueue(@Param("userId") UUID userId);
 
     /**

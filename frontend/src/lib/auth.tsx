@@ -133,7 +133,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (timeSinceActivity > SESSION_TIMEOUT_MS) {
         // Session expired - clear token
         localStorage.removeItem('token');
-        localStorage.removeItem('tenantSubdomain');
         localStorage.removeItem('lastActivity');
         return null;
       }
@@ -205,7 +204,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     } else {
       localStorage.removeItem('token');
-      localStorage.removeItem('tenantSubdomain');
       localStorage.removeItem('lastActivity');
       delete api.defaults.headers.common['Authorization'];
     }

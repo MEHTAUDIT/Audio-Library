@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ChevronRight,
@@ -55,6 +55,7 @@ function AudioSection({
   items, 
   onPlay, 
   playingId,
+  isPlaying,
   onNavigate,
   showAll,
 }: { 
@@ -63,6 +64,7 @@ function AudioSection({
   items: Audio[];
   onPlay: (audio: Audio) => void;
   playingId: string | null;
+  isPlaying: boolean;
   onNavigate: (id: string) => void;
   showAll?: string;
 }) {
@@ -91,6 +93,7 @@ function AudioSection({
             audio={audio} 
             onPlay={onPlay} 
             playingId={playingId}
+            isPlaying={isPlaying}
             onNavigate={onNavigate}
             compact
           />
@@ -105,6 +108,7 @@ function AudioCard({
   audio, 
   onPlay, 
   playingId,
+  isPlaying,
   onNavigate,
   currentTime = 0,
   duration = 0,
@@ -113,6 +117,7 @@ function AudioCard({
   audio: Audio;
   onPlay: (audio: Audio) => void;
   playingId: string | null;
+  isPlaying: boolean;
   onNavigate: (id: string) => void;
   currentTime?: number;
   duration?: number;
@@ -152,14 +157,14 @@ function AudioCard({
         >
           
           <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 group-hover/play:scale-110 transition-all">
-            {playingId === audio.id ? (
+            {playingId === audio.id && isPlaying ? (
               <Pause className="w-5 h-5 text-accent-600" />
             ) : (
               <Play className="w-5 h-5 text-accent-600 ml-1" />
             )}
           </div>
         </button>
-        {playingId === audio.id && (
+        {playingId === audio.id && isPlaying && (
           <div className="absolute bottom-2 left-2 right-2">
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/50 backdrop-blur-sm">
               <Volume2 className="w-3 h-3 text-accent-400 animate-pulse" />
@@ -197,7 +202,8 @@ function AudioCard({
 
 export function LibraryPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, logout } = useAuth();
+  const queryClient = useQueryClient();
+  const { isAuthenticated, isAdmin, logout } = useAuth();
   const [searchFilters, setSearchFilters] = useState<LibraryFilters>({
     audioSubstring: '',
     speakerName: null,
@@ -208,9 +214,11 @@ export function LibraryPage() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'browse' | 'favorites' | 'queue' | 'history'>('browse');
   const audioRef = useRef<HTMLMediaElement>(null); // CHANGED: HTMLMediaElement for video support
+  const repairedDurationIds = useRef<Set<string>>(new Set());
 
   // Queries
   // Fetch a complete published list once to populate dropdown options
@@ -272,19 +280,51 @@ export function LibraryPage() {
     if (!audio) return;
 
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration);
-    const handleEnded = () => setPlayingId(null);
+    const handleLoadedMetadata = () => {
+      const mediaDuration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      setDuration(mediaDuration);
+
+      if (!isAdmin || !playingId || mediaDuration <= 0 || repairedDurationIds.current.has(playingId)) {
+        return;
+      }
+
+      const activeAudio = publishedAudioAll.find((item) => item.id === playingId);
+      if (!activeAudio || activeAudio.durationSeconds > 0) {
+        return;
+      }
+
+      repairedDurationIds.current.add(playingId);
+      audioApi.update(playingId, { durationSeconds: Math.round(mediaDuration) })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ['libraryAudio'] });
+          queryClient.invalidateQueries({ queryKey: ['trending'] });
+          queryClient.invalidateQueries({ queryKey: ['recommendations'] });
+        })
+        .catch(() => repairedDurationIds.current.delete(playingId));
+    };
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setPlayingId(null);
+      setIsPlaying(false);
+      setCurrentTime(0);
+      setDuration(0);
+    };
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
     audio.addEventListener('ended', handleEnded);
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, []);
+  }, [isAdmin, playingId, publishedAudioAll, queryClient]);
 
   // Get unique topics for filtering from current audio
   const audioTopics = [...new Set(publishedAudio?.map((a) => a.topic).filter(Boolean))];
@@ -313,8 +353,13 @@ export function LibraryPage() {
       if (!audioElement) return;
   
       if (playingId === audio.id) {
-        audioElement.pause();
-        setPlayingId(null);
+        if (audioElement.paused) {
+          await audioElement.play();
+          setIsPlaying(true);
+        } else {
+          audioElement.pause();
+          setIsPlaying(false);
+        }
       } else {
         try {
           const response = await api.get(
@@ -336,8 +381,10 @@ export function LibraryPage() {
           await audioElement.play();
   
           setPlayingId(audio.id);
+          setIsPlaying(true);
         } catch (error) {
           console.error("Audio playback error:", error);
+          setIsPlaying(false);
         }
       }
     };
@@ -592,6 +639,7 @@ export function LibraryPage() {
                 items={trending}
                 onPlay={togglePlay}
                 playingId={playingId}
+                isPlaying={isPlaying}
                 onNavigate={handleNavigateToDetail}
               />
             )}
@@ -604,6 +652,7 @@ export function LibraryPage() {
                 items={recommendations}
                 onPlay={togglePlay}
                 playingId={playingId}
+                isPlaying={isPlaying}
                 onNavigate={handleNavigateToDetail}
               />
             )}
@@ -616,6 +665,7 @@ export function LibraryPage() {
                 items={history}
                 onPlay={togglePlay}
                 playingId={playingId}
+                isPlaying={isPlaying}
                 onNavigate={handleNavigateToDetail}
               />
             )}
@@ -726,6 +776,7 @@ export function LibraryPage() {
                     audio={audio}
                     onPlay={togglePlay}
                     playingId={playingId}
+                    isPlaying={isPlaying}
                     onNavigate={handleNavigateToDetail}
                   />
                 </motion.div>
@@ -751,7 +802,7 @@ export function LibraryPage() {
                       }}
                       className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent-600 to-primary-700 flex items-center justify-center flex-shrink-0 hover:scale-105 transition-transform"
                     >
-                      {playingId === audio.id ? (
+                      {playingId === audio.id && isPlaying ? (
                         <Pause className="w-5 h-5 text-white" />
                       ) : (
                         <Play className="w-5 h-5 text-white ml-0.5" />
@@ -820,7 +871,7 @@ export function LibraryPage() {
                     {playingItem?.title}
                   </span>
                   <button
-                    onClick={() => { audioRef.current?.pause(); setPlayingId(null); }}
+                    onClick={() => { audioRef.current?.pause(); setPlayingId(null); setIsPlaying(false); }}
                     className="text-white/60 hover:text-white ml-2 text-lg leading-none"
                   >×</button>
                 </div>
@@ -830,7 +881,7 @@ export function LibraryPage() {
                 className="w-80 max-h-48"
                 controls
                 autoPlay
-                onEnded={() => setPlayingId(null)}
+                onEnded={() => { setPlayingId(null); setIsPlaying(false); }}
               />
             </div>
           </>
@@ -853,15 +904,16 @@ export function LibraryPage() {
                   if (audio) {
                     if (audio.paused) {
                       audio.play();
+                      setIsPlaying(true);
                     } else {
                       audio.pause();
-                      setPlayingId(null);
+                      setIsPlaying(false);
                     }
                   }
                 }}
                 className="w-12 h-12 rounded-full bg-accent-600 flex items-center justify-center hover:bg-accent-500 transition-colors"
               >
-                {audioRef.current?.paused ? (
+                {!isPlaying ? (
                   <Play className="w-5 h-5 text-white ml-0.5" />
                 ) : (
                   <Pause className="w-5 h-5 text-white" />

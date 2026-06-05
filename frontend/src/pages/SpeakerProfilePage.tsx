@@ -1,13 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ExternalLink, Music2, Pencil, RefreshCcw } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { FloatingMediaPlayer } from '../components/audio/FloatingMediaPlayer';
 import { SpeakerAudioCard, SpeakerAudioCardSkeleton } from '../components/audio/SpeakerAudioCard';
 import { Badge } from '../components/ui/Badge';
 import { Card, CardContent } from '../components/ui/Card';
 import { speakerApi } from '../lib/speakerApi';
+import { audioApi } from '../lib/audioApi';
 import { useAuth } from '../lib/auth';
 import { useAudioPlayback } from '../lib/useAudioPlayback';
 import type { SpeakerProfileResponse } from '../types/speaker';
@@ -156,8 +157,9 @@ export function SpeakerProfilePage() {
   const { speakerId } = useParams<{ speakerId: string }>();
   const [avatarError, setAvatarError] = useState(false);
   const [activeMedia, setActiveMedia] = useState<Audio | null>(null);
+  const repairedDurationIds = useRef<Set<string>>(new Set());
 
-  const { mediaRef, playingAudioId, playAudio, stop } = useAudioPlayback({
+  const { mediaRef, playingAudioId, playAudio, stop, duration, isPlaying } = useAudioPlayback({
     onEnded: () => setActiveMedia(null),
   });
 
@@ -193,6 +195,26 @@ export function SpeakerProfilePage() {
       }),
     [audios]
   );
+
+  useEffect(() => {
+    if (!isAdmin || !speakerId || !playingAudioId || duration <= 0 || repairedDurationIds.current.has(playingAudioId)) {
+      return;
+    }
+
+    const activeAudio = audios.find((audio) => audio.id === playingAudioId);
+    if (!activeAudio || activeAudio.durationSeconds > 0) {
+      return;
+    }
+
+    repairedDurationIds.current.add(playingAudioId);
+    audioApi.update(playingAudioId, { durationSeconds: Math.round(duration) })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['speakerProfile', speakerId] });
+        queryClient.invalidateQueries({ queryKey: ['libraryAudio'] });
+        queryClient.invalidateQueries({ queryKey: ['audio', playingAudioId] });
+      })
+      .catch(() => repairedDurationIds.current.delete(playingAudioId));
+  }, [audios, duration, isAdmin, playingAudioId, queryClient, speakerId]);
 
   const handleRetry = () => {
     if (!speakerId) {
@@ -371,7 +393,7 @@ export function SpeakerProfilePage() {
                   <SpeakerAudioCard
                     key={audio.id}
                     audio={audio}
-                    isPlaying={playingAudioId === audio.id}
+                    isPlaying={playingAudioId === audio.id && isPlaying}
                     onPlay={handlePlayAudio}
                     onNavigate={(audioId) => navigate(`/library/${audioId}`)}
                   />

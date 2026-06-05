@@ -19,15 +19,32 @@ public interface ListeningHistoryRepository extends JpaRepository<ListeningHisto
     /**
      * Find user's listening history ordered by most recent.
      */
-    @Query("SELECT h FROM ListeningHistory h JOIN FETCH h.audio WHERE h.user.id = :userId ORDER BY h.startedAt DESC")
+    @Query(value = """
+           SELECT DISTINCT h
+           FROM ListeningHistory h
+           JOIN FETCH h.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE h.user.id = :userId
+           ORDER BY h.startedAt DESC
+           """,
+           countQuery = "SELECT COUNT(h) FROM ListeningHistory h WHERE h.user.id = :userId")
     Page<ListeningHistory> findByUserIdOrderByStartedAtDesc(@Param("userId") UUID userId, Pageable pageable);
 
     /**
      * Find recent listening history for continue listening.
      */
-    @Query("SELECT h FROM ListeningHistory h JOIN FETCH h.audio " +
-           "WHERE h.user.id = :userId AND h.endedAt IS NULL " +
-           "ORDER BY h.startedAt DESC")
+    @Query("""
+           SELECT DISTINCT h
+           FROM ListeningHistory h
+           JOIN FETCH h.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE h.user.id = :userId AND h.endedAt IS NULL
+           ORDER BY h.startedAt DESC
+           """)
     List<ListeningHistory> findInProgressByUserId(@Param("userId") UUID userId, Pageable pageable);
 
     /**
@@ -45,7 +62,16 @@ public interface ListeningHistoryRepository extends JpaRepository<ListeningHisto
     /**
      * Find all history for a user ordered by started at.
      */
-    @Query("SELECT h FROM ListeningHistory h JOIN FETCH h.audio WHERE h.user.id = :userId ORDER BY h.startedAt DESC")
+    @Query("""
+           SELECT DISTINCT h
+           FROM ListeningHistory h
+           JOIN FETCH h.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE h.user.id = :userId
+           ORDER BY h.startedAt DESC
+           """)
     List<ListeningHistory> findByUserIdOrderByStartedAtDesc(@Param("userId") UUID userId);
 
     /**

@@ -58,6 +58,10 @@ export function PublicPlaylistPage() {
 
   const playlist = playlistQuery.data;
   const items = playlist?.items ?? [];
+  const totalDurationSeconds = useMemo(
+    () => items.reduce((sum, audio) => sum + (audio.durationSeconds || 0), 0),
+    [items]
+  );
 
   const videoCount = useMemo(() => items.filter(isVideo).length, [items]);
 
@@ -167,7 +171,7 @@ export function PublicPlaylistPage() {
                 </span>
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-3 py-1.5">
                   <Clock className="h-4 w-4" />
-                  {formatTotalDuration(playlist.totalDurationSeconds)}
+                  {formatTotalDuration(totalDurationSeconds || playlist.totalDurationSeconds)}
                 </span>
                 {videoCount > 0 && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-3 py-1.5">

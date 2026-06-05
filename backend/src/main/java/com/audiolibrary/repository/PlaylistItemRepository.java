@@ -17,13 +17,25 @@ public interface PlaylistItemRepository extends JpaRepository<PlaylistItem, UUID
     /**
      * Find all items in a playlist ordered by position.
      */
-    @Query("SELECT pi FROM PlaylistItem pi JOIN FETCH pi.audio WHERE pi.playlist.id = :playlistId ORDER BY pi.position")
+    @Query("""
+           SELECT DISTINCT pi
+           FROM PlaylistItem pi
+           JOIN FETCH pi.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE pi.playlist.id = :playlistId
+           ORDER BY pi.position
+           """)
     List<PlaylistItem> findAllByPlaylistIdOrderByPosition(@Param("playlistId") UUID playlistId);
 
     @Query("""
-           SELECT pi
+           SELECT DISTINCT pi
            FROM PlaylistItem pi
            JOIN FETCH pi.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
            WHERE pi.playlist.id = :playlistId
            AND a.status = 'PUBLISHED'
            AND a.deletedAt IS NULL

@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../..
 import { isMediaFilename, MEDIA_ACCEPT_INPUT, MEDIA_DROPZONE_ACCEPT } from '../../lib/mediaTypes';
 import { speakerApi } from '../../lib/speakerApi';
 import { getMediaDurationSeconds } from '../../lib/mediaMetadata';
+import { getApiErrorMessage } from '../../lib/apiErrors';
 import type { SpeakerSummary } from '../../types/speaker';
 
 interface FileWithPreview extends File {
@@ -63,6 +64,9 @@ export function UploadPage() {
       setCurrentStep('success');
     },
   });
+  const uploadErrorMessage = uploadMutation.isError
+    ? getApiErrorMessage(uploadMutation.error, 'Failed to upload. Please try again.')
+    : null;
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const mediaFiles = acceptedFiles.filter((file) =>
@@ -488,7 +492,7 @@ export function UploadPage() {
                   {uploadMutation.isError && (
                     <div className="flex items-center gap-2 p-4 bg-rose-50 rounded-lg text-rose-700">
                       <AlertCircle className="w-5 h-5" />
-                      <span>Failed to upload. Please try again.</span>
+                      <span>{uploadErrorMessage}</span>
                     </div>
                   )}
 

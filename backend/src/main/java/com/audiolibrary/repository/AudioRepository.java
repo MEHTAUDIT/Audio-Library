@@ -3,6 +3,7 @@ package com.audiolibrary.repository;
 import com.audiolibrary.entity.Audio;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -48,18 +49,23 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
     """)
     Optional<Audio> findByIdWithSpeakers(@Param("id") UUID id);
 
+    @EntityGraph(attributePaths = {"series", "audioSpeakers", "audioSpeakers.speaker"})
     List<Audio> findByDeletedAtIsNull();
 
+    @EntityGraph(attributePaths = {"series", "audioSpeakers", "audioSpeakers.speaker"})
     List<Audio> findByStatusAndDeletedAtIsNull(Audio.Status status);
 
     long countByDeletedAtIsNull();
 
     long countByStatusAndDeletedAtIsNull(Audio.Status status);
 
+    @EntityGraph(attributePaths = {"series", "audioSpeakers", "audioSpeakers.speaker"})
     List<Audio> findByTenantIdAndDeletedAtIsNull(UUID tenantId);
 
+    @EntityGraph(attributePaths = {"series", "audioSpeakers", "audioSpeakers.speaker"})
     List<Audio> findByTenantIdAndStatusAndDeletedAtIsNull(UUID tenantId, Audio.Status status);
 
+    @EntityGraph(attributePaths = {"series", "audioSpeakers", "audioSpeakers.speaker"})
     Page<Audio> findByStatusAndDeletedAtIsNull(Audio.Status status, Pageable pageable);
 
     Optional<Audio> findByFileHashAndDeletedAtIsNull(String fileHash);
@@ -79,5 +85,6 @@ public interface AudioRepository extends JpaRepository<Audio, UUID>, JpaSpecific
             @Param("speakerId") UUID speakerId
     );
 
+    @EntityGraph(attributePaths = {"series", "audioSpeakers", "audioSpeakers.speaker"})
     List<Audio> findBySeriesIdAndDeletedAtIsNullOrderBySeriesOrderAsc(UUID seriesId);
 }
