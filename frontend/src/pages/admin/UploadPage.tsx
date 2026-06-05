@@ -308,6 +308,7 @@ export function UploadPage() {
                       <span>Maximum file size: 500MB</span>
                     </div>
                   </div>
+
                 </div>
                 {fileError && (
                   <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">

@@ -30,6 +30,7 @@ import { Badge } from '../../components/ui/Badge';
 import { api } from '../../lib/api';
 import { audioApi } from '../../lib/audioApi';
 import { useAuth } from '../../lib/auth';
+import { useResolvedMediaDuration } from '../../lib/useResolvedMediaDuration';
 import { discoveryApi, userLibraryApi } from '../../lib/userLibraryApi';
 import { seriesApi } from '../../lib/seriesApi'; // ADDED
 import type { Audio } from '../../types/audio';
@@ -123,6 +124,8 @@ function AudioCard({
   duration?: number;
   compact?: boolean;
 }){
+  const displayDuration = useResolvedMediaDuration(audio);
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -192,12 +195,24 @@ function AudioCard({
           )}
           <span className="flex items-center gap-1">
             <Clock className="w-3 h-3" />
-            {formatDuration(audio.durationSeconds)}
+            {formatDuration(displayDuration)}
           </span>
         </div>
       </div>
     </div>
   );
+}
+
+function ResolvedDurationText({ audio }: { audio: Audio }) {
+  const displayDuration = useResolvedMediaDuration(audio);
+  const mins = Math.floor(displayDuration / 60);
+  const secs = Math.floor(displayDuration % 60);
+  if (mins >= 60) {
+    const hours = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+    return <>{hours}h {remainingMins}m</>;
+  }
+  return <>{mins}:{secs.toString().padStart(2, '0')}</>;
 }
 
 export function LibraryPage() {
@@ -828,7 +843,7 @@ export function LibraryPage() {
                     </div>
                     <div className="text-sm text-slate-500 flex items-center gap-1">
                       <Clock className="w-4 h-4" />
-                      {formatDuration(audio.durationSeconds)}
+                      <ResolvedDurationText audio={audio} />
                     </div>
                   </div>
                 </motion.div>

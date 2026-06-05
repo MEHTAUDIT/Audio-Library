@@ -39,7 +39,7 @@ public class DiscoveryController {
             @RequestParam(defaultValue = "10") int limit) {
         
         // Get published audio sorted by a combination of play count and recency
-        List<Audio> publishedAudio = audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED);
+        List<Audio> publishedAudio = uniqueById(audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED));
         
         // Calculate trending score based on play count
         List<AudioWithScore> scored = publishedAudio.stream()
@@ -65,7 +65,7 @@ public class DiscoveryController {
     @GetMapping("/topics")
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<Map<String, Object>>> getTopics() {
-        List<Audio> publishedAudio = audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED);
+        List<Audio> publishedAudio = uniqueById(audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED));
         
         Map<String, Long> topicCounts = publishedAudio.stream()
                 .filter(a -> a.getTopic() != null && !a.getTopic().isBlank())
@@ -88,7 +88,7 @@ public class DiscoveryController {
     @GetMapping("/topics/{topic}")
     @PreAuthorize("permitAll()")
     public ResponseEntity<List<AudioResponse>> getAudioByTopic(@PathVariable String topic) {
-        List<Audio> audio = audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED).stream()
+        List<Audio> audio = uniqueById(audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED)).stream()
                 .filter(a -> topic.equalsIgnoreCase(a.getTopic()))
                 .collect(Collectors.toList());
         
@@ -119,9 +119,10 @@ public class DiscoveryController {
         UUID userId = user.getId();
         
         // Get user's listened topics
-        List<Audio> listenedAudio = historyRepository.findByUserIdOrderByStartedAtDesc(userId).stream()
+        List<Audio> listenedAudio = uniqueById(historyRepository.findByUserIdOrderByStartedAtDesc(userId).stream()
                 .map(h -> h.getAudio())
-                .collect(Collectors.toList());
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList()));
         
         Set<String> preferredTopics = listenedAudio.stream()
                 .map(Audio::getTopic)
@@ -133,7 +134,7 @@ public class DiscoveryController {
                 .collect(Collectors.toSet());
         
         // Recommend audio in preferred topics that user hasn't listened to
-        List<Audio> recommendations = audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED).stream()
+        List<Audio> recommendations = uniqueById(audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED)).stream()
                 .filter(a -> !listenedIds.contains(a.getId()))
                 .filter(a -> preferredTopics.isEmpty() || preferredTopics.contains(a.getTopic()))
                 .limit(limit)
@@ -141,13 +142,21 @@ public class DiscoveryController {
         
         // If not enough recommendations, add trending
         if (recommendations.size() < limit) {
-            List<Audio> trending = audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED).stream()
+            Set<UUID> recommendationIds = recommendations.stream()
+                    .map(Audio::getId)
+                    .collect(Collectors.toSet());
+
+            List<Audio> trending = uniqueById(audioRepository.findByStatusAndDeletedAtIsNull(Audio.Status.PUBLISHED)).stream()
                     .filter(a -> !listenedIds.contains(a.getId()))
-                    .filter(a -> !recommendations.contains(a))
+                    .filter(a -> recommendationIds.add(a.getId()))
                     .limit(limit - recommendations.size())
                     .collect(Collectors.toList());
             recommendations.addAll(trending);
         }
+
+        recommendations = uniqueById(recommendations).stream()
+                .limit(limit)
+                .collect(Collectors.toList());
         
         List<AudioResponse> result = recommendations.stream()
                 .map(AudioResponse::fromEntity)
@@ -164,5 +173,15 @@ public class DiscoveryController {
             this.audio = audio;
             this.score = score;
         }
+    }
+
+    private List<Audio> uniqueById(List<Audio> audioList) {
+        Map<UUID, Audio> uniqueAudio = new LinkedHashMap<>();
+        for (Audio audio : audioList) {
+            if (audio != null && audio.getId() != null) {
+                uniqueAudio.putIfAbsent(audio.getId(), audio);
+            }
+        }
+        return new ArrayList<>(uniqueAudio.values());
     }
 }

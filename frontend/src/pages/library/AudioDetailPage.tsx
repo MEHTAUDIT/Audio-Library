@@ -35,6 +35,7 @@ export function AudioDetailPage() {
   const queryClient = useQueryClient();
   const { isAuthenticated, isAdmin } = useAuth();
   const audioRef = useRef<HTMLMediaElement>(null); // CHANGED: HTMLMediaElement for video support
+  const objectUrlRef = useRef<string | null>(null);
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -54,6 +55,43 @@ export function AudioDetailPage() {
   });
 
   const primarySpeakerId = audio?.speakers?.[0]?.id;
+
+  useEffect(() => {
+    const media = audioRef.current;
+    if (!audio || !id || !media || media.src) {
+      return;
+    }
+
+    let cancelled = false;
+    api.get(`/audio/${id}/stream`, { responseType: 'blob' })
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        const streamedBlob = response.data as Blob;
+        const normalizedBlob =
+          (!streamedBlob.type || streamedBlob.type === 'application/octet-stream') && audio.mimeType
+            ? new Blob([streamedBlob], { type: audio.mimeType })
+            : streamedBlob;
+        const objectUrl = URL.createObjectURL(normalizedBlob);
+        objectUrlRef.current = objectUrl;
+        media.src = objectUrl;
+        media.load();
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audio, id]);
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  }, []);
 
   // Fetch user status (favorited, in queue)
   const { data: isFavorited } = useQuery({

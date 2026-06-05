@@ -1,6 +1,17 @@
 import { api } from './api';
 import type { Audio } from '../types/audio';
 
+const uniqueAudioById = (items: Audio[]) => {
+  const seen = new Set<string>();
+  return items.filter((audio) => {
+    if (seen.has(audio.id)) {
+      return false;
+    }
+    seen.add(audio.id);
+    return true;
+  });
+};
+
 export interface UserPreferences {
   userId: string;
   preferredPlaybackSpeed: number;
@@ -99,7 +110,7 @@ export const userLibraryApi = {
 export const discoveryApi = {
   getTrending: async (limit: number = 10): Promise<Audio[]> => {
     const response = await api.get<Audio[]>('/discovery/trending', { params: { limit } });
-    return response.data;
+    return uniqueAudioById(response.data);
   },
 
   getTopics: async (): Promise<{ name: string; count: number }[]> => {
@@ -109,12 +120,12 @@ export const discoveryApi = {
 
   getAudioByTopic: async (topic: string): Promise<Audio[]> => {
     const response = await api.get<Audio[]>(`/discovery/topics/${encodeURIComponent(topic)}`);
-    return response.data;
+    return uniqueAudioById(response.data);
   },
 
   getRecommendations: async (limit: number = 10): Promise<Audio[]> => {
     const response = await api.get<Audio[]>('/discovery/recommendations', { params: { limit } });
-    return response.data;
+    return uniqueAudioById(response.data);
   },
 };
 
