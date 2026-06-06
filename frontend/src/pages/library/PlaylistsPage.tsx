@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
+  Clock,
   Copy,
   Eye,
   EyeOff,
@@ -26,6 +27,19 @@ import { useAudioPlayback } from '../../lib/useAudioPlayback';
 import { isVideo, type Audio } from '../../types/audio';
 import type { Playlist, PlaylistCreateRequest } from '../../types/playlist';
 
+const formatDuration = (seconds: number) => {
+  const totalSeconds = Math.max(0, Math.floor(seconds || 0));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+  }
+
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
+
 export function PlaylistsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -49,6 +63,10 @@ export function PlaylistsPage() {
 
   const playlists = playlistsQuery.data ?? [];
   const selected = playlists.find((playlist) => playlist.id === selectedId) ?? null;
+  const selectedTotalDuration = useMemo(
+    () => selected?.items.reduce((sum, audio) => sum + (audio.durationSeconds || 0), 0) ?? 0,
+    [selected?.items]
+  );
 
   useEffect(() => {
     if (!selectedId && playlists.length > 0) {
@@ -209,6 +227,16 @@ export function PlaylistsPage() {
                   <div>
                     <h2 className="text-2xl font-bold text-slate-900">{selected.name}</h2>
                     <p className="mt-2 text-slate-600">{selected.description || 'No description.'}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-500">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1">
+                        <Music className="h-4 w-4" />
+                        {selected.items.length} items
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1">
+                        <Clock className="h-4 w-4" />
+                        {formatDuration(selectedTotalDuration)}
+                      </span>
+                    </div>
                   </div>
                   <button
                     onClick={() => confirm(`Delete "${selected.name}"?`) && deleteMutation.mutate(selected.id)}
@@ -271,7 +299,10 @@ export function PlaylistsPage() {
                           </button>
                           <div className="min-w-0 flex-1">
                             <Link to={`/library/${audio.id}`} className="block truncate font-medium text-slate-900 hover:text-primary-700">{audio.title}</Link>
-                            <span className="text-xs text-slate-500">{audio.speaker || 'Unknown speaker'}</span>
+                            <span className="text-xs text-slate-500">
+                              {audio.speaker || 'Unknown speaker'}
+                              {audio.durationSeconds > 0 ? ` · ${formatDuration(audio.durationSeconds)}` : ''}
+                            </span>
                           </div>
                           {isVideo(audio) && <Video className="h-4 w-4 text-blue-500" />}
                           <button onClick={() => removeMutation.mutate({ playlistId: selected.id, audioId: audio.id })} className="rounded p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600">

@@ -32,6 +32,7 @@ import {
 import { audioApi } from '../../lib/audioApi';
 import { getMediaDurationSeconds } from '../../lib/mediaMetadata';
 import { api } from '../../lib/api';
+import { getApiErrorMessage, isDuplicateUploadError } from '../../lib/apiErrors';
 import { s3Api, type UploadProgress as S3UploadProgress, isDuplicateError, parseDuplicateMessage, splitDuplicatesAndErrors } from '../../lib/s3Api';
 import { isMediaFilename } from '../../lib/mediaTypes';
 import type {
@@ -335,7 +336,7 @@ export function BulkUploadPage() {
       } catch (error) {
         setUploadProgress(prev => prev ? {
           ...prev,
-          errors: [{ file: 'Batch import', error: error instanceof Error ? error.message : 'Import failed' }],
+          errors: [{ file: 'Batch import', error: getApiErrorMessage(error, 'Import failed') }],
         } : null);
       }
 
@@ -382,18 +383,16 @@ export function BulkUploadPage() {
       } catch (error: any) {
         failed++;
         // CHANGED: Detect 409 duplicate response from AudioController and show friendly message
-        if (error.response?.status === 409 && error.response?.data?.error === 'DUPLICATE_FILE') {
+        if (isDuplicateUploadError(error)) {
           errors.push({
             file: mappedFile.title,
-            error: error.response.data.existingTitle
-              ? `Already exists as "${error.response.data.existingTitle}"`
-              : 'This file already exists in the library',
+            error: getApiErrorMessage(error),
             isDuplicate: true,
           });
         } else {
           errors.push({
             file: mappedFile.title,
-            error: error instanceof Error ? error.message : 'Upload failed',
+            error: getApiErrorMessage(error, 'Upload failed'),
             isDuplicate: false,
           });
         }

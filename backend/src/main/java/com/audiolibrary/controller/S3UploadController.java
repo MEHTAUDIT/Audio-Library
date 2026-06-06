@@ -110,7 +110,6 @@ public class S3UploadController {
         }
         
         // CHANGED: Compute file hash from S3 object for duplicate detection
-        // (was: null passed to createDraftWithFile, skipping dedup entirely)
         String fileHash = s3StorageService.computeObjectHash(request.getS3Key());  // ADDED
         if (fileHash != null) {
             log.debug("Computed hash for S3 object {}: {}", request.getS3Key(), fileHash);
@@ -124,11 +123,9 @@ public class S3UploadController {
         // Create audio record with hash for dedup
         String title = request.getTitle() != null ? request.getTitle() : 
                 request.getFilename().replaceFirst("[.][^.]+$", "").replace("[-_]", " ");
-        
-        // ADDED: Detect media duration via ffprobe (downloads to temp file, probes, cleans up)
+
         long durationSeconds = s3StorageService.getMediaDuration(request.getS3Key(), metadata.getContentType());
-        
-        // CHANGED: Wrapped in try/catch and pass fileHash instead of null
+
         try {
             var audio = audioService.createDraftWithFile(
                     title,

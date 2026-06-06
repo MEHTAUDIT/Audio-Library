@@ -33,8 +33,9 @@ export function AudioDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin } = useAuth();
   const audioRef = useRef<HTMLMediaElement>(null); // CHANGED: HTMLMediaElement for video support
+  const objectUrlRef = useRef<string | null>(null);
 
   // Player state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -44,6 +45,7 @@ export function AudioDetailPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const repairedDurationIds = useRef<Set<string>>(new Set());
 
   // Fetch audio details
   const { data: audio, isLoading } = useQuery({
@@ -53,6 +55,43 @@ export function AudioDetailPage() {
   });
 
   const primarySpeakerId = audio?.speakers?.[0]?.id;
+
+  useEffect(() => {
+    const media = audioRef.current;
+    if (!audio || !id || !media || media.src) {
+      return;
+    }
+
+    let cancelled = false;
+    api.get(`/audio/${id}/stream`, { responseType: 'blob' })
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        const streamedBlob = response.data as Blob;
+        const normalizedBlob =
+          (!streamedBlob.type || streamedBlob.type === 'application/octet-stream') && audio.mimeType
+            ? new Blob([streamedBlob], { type: audio.mimeType })
+            : streamedBlob;
+        const objectUrl = URL.createObjectURL(normalizedBlob);
+        objectUrlRef.current = objectUrl;
+        media.src = objectUrl;
+        media.load();
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audio, id]);
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  }, []);
 
   // Fetch user status (favorited, in queue)
   const { data: isFavorited } = useQuery({
@@ -97,29 +136,41 @@ export function AudioDetailPage() {
 
   // Audio event handlers
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const media = audioRef.current;
+    if (!media) return;
 
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleTimeUpdate = () => setCurrentTime(media.currentTime);
     const handleLoadedMetadata = () => {
-      setDuration(audio.duration);
+      const mediaDuration = Number.isFinite(media.duration) ? media.duration : 0;
+      setDuration(mediaDuration);
+
+      if (isAdmin && id && mediaDuration > 0 && (!audio?.durationSeconds || audio.durationSeconds <= 0) && !repairedDurationIds.current.has(id)) {
+        repairedDurationIds.current.add(id);
+        audioApi.update(id, { durationSeconds: Math.round(mediaDuration) })
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ['audio', id] });
+            queryClient.invalidateQueries({ queryKey: ['libraryAudio'] });
+          })
+          .catch(() => repairedDurationIds.current.delete(id));
+      }
+
       // Resume from saved position
       if (savedPosition && savedPosition > 0) {
-        audio.currentTime = savedPosition;
+        media.currentTime = savedPosition;
       }
     };
     const handleEnded = () => setIsPlaying(false);
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
+    media.addEventListener('timeupdate', handleTimeUpdate);
+    media.addEventListener('loadedmetadata', handleLoadedMetadata);
+    media.addEventListener('ended', handleEnded);
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
+      media.removeEventListener('timeupdate', handleTimeUpdate);
+      media.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      media.removeEventListener('ended', handleEnded);
     };
-  }, [savedPosition]);
+  }, [audio?.durationSeconds, id, isAdmin, queryClient, savedPosition]);
 
   // Save position periodically
   useEffect(() => {
@@ -289,6 +340,8 @@ export function AudioDetailPage() {
     );
   }
 
+  const displayDuration = duration > 0 ? duration : audio.durationSeconds || 0;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50">
       {/* Hidden audio element for audio files */}
@@ -361,7 +414,7 @@ export function AudioDetailPage() {
               <div className="flex items-center gap-4 text-slate-500">
                 <span className="flex items-center gap-1">
                   <Clock className="w-4 h-4" />
-                  {formatTime(audio.durationSeconds)}
+                  {formatTime(displayDuration)}
                 </span>
                 {audio.topic && (
                   <span className="px-3 py-1 rounded-full bg-accent-100 text-accent-700 text-sm">
@@ -453,14 +506,14 @@ export function AudioDetailPage() {
               <input
                 type="range"
                 min="0"
-                max={duration || 100}
+                max={displayDuration || 100}
                 value={currentTime}
                 onChange={handleSeek}
                 className="w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-accent-600 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
               />
               <div className="flex justify-between text-sm text-slate-500">
                 <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(duration)}</span>
+                <span>{formatTime(displayDuration)}</span>
               </div>
             </div>
 

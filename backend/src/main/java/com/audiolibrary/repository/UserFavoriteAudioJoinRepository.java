@@ -18,19 +18,46 @@ public interface UserFavoriteAudioJoinRepository extends JpaRepository<UserFavor
     /**
      * Find all favorite audio for a user.
      */
-    @Query("SELECT f FROM UserFavoriteAudioJoin f JOIN FETCH f.audio WHERE f.user.id = :userId ORDER BY f.createdAt DESC")
+    @Query("""
+           SELECT DISTINCT f
+           FROM UserFavoriteAudioJoin f
+           JOIN FETCH f.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE f.user.id = :userId
+           ORDER BY f.createdAt DESC
+           """)
     List<UserFavoriteAudioJoin> findAllByUserId(@Param("userId") UUID userId);
 
     /**
      * Find favorite audio for a user, ordered by createdAt descending.
      */
-    @Query("SELECT f FROM UserFavoriteAudioJoin f JOIN FETCH f.audio WHERE f.user.id = :userId ORDER BY f.createdAt DESC")
+    @Query("""
+           SELECT DISTINCT f
+           FROM UserFavoriteAudioJoin f
+           JOIN FETCH f.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE f.user.id = :userId
+           ORDER BY f.createdAt DESC
+           """)
     List<UserFavoriteAudioJoin> findByUserIdOrderByCreatedAtDesc(@Param("userId") UUID userId);
 
     /**
      * Find all favorite audio for a user with pagination.
      */
-    @Query("SELECT f FROM UserFavoriteAudioJoin f JOIN FETCH f.audio WHERE f.user.id = :userId")
+    @Query(value = """
+           SELECT DISTINCT f
+           FROM UserFavoriteAudioJoin f
+           JOIN FETCH f.audio a
+           LEFT JOIN FETCH a.series
+           LEFT JOIN FETCH a.audioSpeakers asp
+           LEFT JOIN FETCH asp.speaker
+           WHERE f.user.id = :userId
+           """,
+           countQuery = "SELECT COUNT(f) FROM UserFavoriteAudioJoin f WHERE f.user.id = :userId")
     Page<UserFavoriteAudioJoin> findAllByUserId(@Param("userId") UUID userId, Pageable pageable);
 
     /**

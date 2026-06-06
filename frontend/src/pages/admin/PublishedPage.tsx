@@ -24,8 +24,10 @@ import { Card, CardContent } from '../../components/ui/Card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/Tooltip';
 import { audioApi } from '../../lib/audioApi';
 import { useAudioPlayback } from '../../lib/useAudioPlayback'; // ADDED: reuse existing playback hook
-import { isVideo } from '../../types/audio';
+import { isVideo, type Audio } from '../../types/audio';
 import type { BulkActionResult } from '../../types/audio';
+
+const getPrimarySpeaker = (audio: Audio) => audio.speakers?.find((speaker) => speaker.id) ?? null;
 
 export function PublishedPage() {
   const queryClient = useQueryClient();
@@ -353,11 +355,22 @@ export function PublishedPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
-                            {audio.speaker && (
-                              <span className="flex items-center gap-1">
-                                <User className="w-3.5 h-3.5" />
-                                {audio.speaker}
-                              </span>
+                            {(getPrimarySpeaker(audio) || audio.speaker) && (
+                              getPrimarySpeaker(audio) ? (
+                                <Link
+                                  to={`/speaker/${getPrimarySpeaker(audio)!.id}`}
+                                  className="flex items-center gap-1 hover:text-emerald-600 transition-colors"
+                                  title={`Open ${getPrimarySpeaker(audio)!.name}`}
+                                >
+                                  <User className="w-3.5 h-3.5" />
+                                  {getPrimarySpeaker(audio)!.name}
+                                </Link>
+                              ) : (
+                                <span className="flex items-center gap-1">
+                                  <User className="w-3.5 h-3.5" />
+                                  {audio.speaker}
+                                </span>
+                              )
                             )}
                             <span className="flex items-center gap-1">
                               <Clock className="w-3.5 h-3.5" />

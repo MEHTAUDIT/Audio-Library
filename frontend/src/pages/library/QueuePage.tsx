@@ -13,15 +13,18 @@ import {
     Trash2,
     User,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { FloatingMediaPlayer } from '../../components/audio/FloatingMediaPlayer';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
+import { audioApi } from '../../lib/audioApi';
+import { useAuth } from '../../lib/auth';
 import { useAudioPlayback } from '../../lib/useAudioPlayback';
+import { resolveMediaDurationSeconds } from '../../lib/useResolvedMediaDuration';
 import { userLibraryApi } from '../../lib/userLibraryApi';
 import type { Audio } from '../../types/audio';
-import { isVideo } from '../../types/audio';
 
 const container = {
   hidden: { opacity: 0 },
@@ -120,8 +123,11 @@ function QueueEmptyState() {
 export function QueuePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const [playbackOrder, setPlaybackOrder] = useState<string[]>([]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [durationOverrides, setDurationOverrides] = useState<Record<string, number>>({});
+  const repairedDurationIds = useRef<Set<string>>(new Set());
 
   const {
     audioRef,
@@ -186,14 +192,72 @@ export function QueuePage() {
   const queueIds = useMemo(() => queue.map((audio) => audio.id), [queue]);
 
   const totalDuration = useMemo(
-    () => queue.reduce((sum, audio) => sum + (audio.durationSeconds || 0), 0),
-    [queue]
+    () => queue.reduce((sum, audio) => sum + (durationOverrides[audio.id] || audio.durationSeconds || 0), 0),
+    [durationOverrides, queue]
   );
 
   const currentAudio = useMemo(
     () => queue.find((audio) => audio.id === playingAudioId) ?? null,
     [playingAudioId, queue]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    queue
+      .filter((audio) => !audio.durationSeconds && !durationOverrides[audio.id])
+      .forEach((audio) => {
+        resolveMediaDurationSeconds(audio).then((resolvedDuration) => {
+          if (cancelled || resolvedDuration <= 0) {
+            return;
+          }
+
+          setDurationOverrides((current) => ({ ...current, [audio.id]: resolvedDuration }));
+          if (isAdmin && !repairedDurationIds.current.has(audio.id)) {
+            repairedDurationIds.current.add(audio.id);
+            audioApi.update(audio.id, { durationSeconds: resolvedDuration })
+              .then(() => queryClient.invalidateQueries({ queryKey: ['userQueue'] }))
+              .catch(() => repairedDurationIds.current.delete(audio.id));
+          }
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [durationOverrides, isAdmin, queryClient, queue]);
+
+  const getDisplayDuration = useCallback(
+    (audio: Audio) => durationOverrides[audio.id] || audio.durationSeconds || 0,
+    [durationOverrides]
+  );
+
+  useEffect(() => {
+    if (!playingAudioId || duration <= 0) {
+      return;
+    }
+
+    const roundedDuration = Math.round(duration);
+    setDurationOverrides((current) => (
+      current[playingAudioId] && current[playingAudioId] >= roundedDuration
+        ? current
+        : { ...current, [playingAudioId]: roundedDuration }
+    ));
+
+    const activeAudio = queue.find((audio) => audio.id === playingAudioId);
+    if (!isAdmin || !activeAudio || activeAudio.durationSeconds > 0 || repairedDurationIds.current.has(playingAudioId)) {
+      return;
+    }
+
+    repairedDurationIds.current.add(playingAudioId);
+    audioApi.update(playingAudioId, { durationSeconds: roundedDuration })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['userQueue'] });
+        queryClient.invalidateQueries({ queryKey: ['libraryAudio'] });
+        queryClient.invalidateQueries({ queryKey: ['audio', playingAudioId] });
+      })
+      .catch(() => repairedDurationIds.current.delete(playingAudioId));
+  }, [duration, isAdmin, playingAudioId, queryClient, queue]);
 
   useEffect(() => {
     if (playbackOrder.length === 0) return;
@@ -243,7 +307,7 @@ export function QueuePage() {
 
     setPlaybackOrder(order);
     setActiveIndex(index >= 0 ? index : 0);
-    await playAudio(audio, { restart: true });
+    await playAudio(audio, { restart: playingAudioId !== audio.id });
   };
 
   const handleRetry = () => {
@@ -273,7 +337,6 @@ export function QueuePage() {
         <main className="max-w-7xl mx-auto px-6 py-8">
           <QueueSkeleton />
         </main>
-        <video ref={audioRef as React.RefObject<HTMLVideoElement>} className="hidden" /> {/* CHANGED: video element for both audio + video */}
       </div>
     );
   }
@@ -308,11 +371,10 @@ export function QueuePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-      {/*  Visible video player when playing video; hidden for audio */}
-      <video
-        ref={audioRef as React.RefObject<HTMLVideoElement>}
-        className={currentAudio && isVideo(currentAudio) ? 'max-w-md rounded-lg mx-auto mt-4' : 'hidden'}
-        controls={!!(currentAudio && isVideo(currentAudio))}
+      <FloatingMediaPlayer
+        mediaRef={audioRef}
+        media={currentAudio}
+        onClose={stop}
       />
 
       <header className="relative overflow-hidden bg-gradient-to-br from-primary-700 via-primary-600 to-accent-600">
@@ -390,7 +452,7 @@ export function QueuePage() {
                       )}
                       <span className="flex items-center gap-1.5">
                         <Clock className="h-4 w-4" />
-                        {formatDuration(currentAudio.durationSeconds)}
+                        {formatDuration(getDisplayDuration(currentAudio))}
                       </span>
                       <Badge variant="outline">Queue item {queue.findIndex((audio) => audio.id === currentAudio.id) + 1}</Badge>
                     </div>
@@ -414,7 +476,7 @@ export function QueuePage() {
                     <input
                       type="range"
                       min="0"
-                      max={duration || currentAudio.durationSeconds || 0}
+                      max={duration || getDisplayDuration(currentAudio)}
                       value={currentTime}
                       aria-label="Queue playback progress"
                       title="Queue playback progress"
@@ -423,7 +485,7 @@ export function QueuePage() {
                     />
                     <div className="flex items-center justify-between text-xs text-slate-500">
                       <span>{formatDuration(currentTime)}</span>
-                      <span>{formatDuration(duration || currentAudio.durationSeconds || 0)}</span>
+                      <span>{formatDuration(duration || getDisplayDuration(currentAudio))}</span>
                     </div>
                   </div>
                 </div>
@@ -492,7 +554,7 @@ export function QueuePage() {
                               )}
                               <span className="flex items-center gap-1.5">
                                 <Clock className="h-4 w-4" />
-                                {formatDuration(audio.durationSeconds)}
+                                {formatDuration(getDisplayDuration(audio))}
                               </span>
                               {audio.topic && <Badge variant="outline">{audio.topic}</Badge>}
                             </div>

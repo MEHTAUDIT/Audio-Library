@@ -1,6 +1,7 @@
 package com.audiolibrary.service;
 
 import com.audiolibrary.dto.BulkImportDtos.*;
+import com.audiolibrary.dto.AudioResponse;
 import com.audiolibrary.entity.*;
 import com.audiolibrary.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -360,12 +361,13 @@ public class BulkImportService {
         String storageKey = storageService.storeFileFromPath(sourceFile, tenantId);
         long durationSeconds = storageService.getAudioDuration(storageKey);
 
-        audioService.createDraftWithFile(
+        AudioResponse created = audioService.createDraftWithFile(
                 mappedFile.getTitle(), mappedFile.getSeries(), mappedFile.getSpeaker(), mappedFile.getTopic(),
                 storageKey, mappedFile.getFilename(),
                 mappedFile.getSizeBytes() != null ? mappedFile.getSizeBytes() : Files.size(sourceFile),
                 getMimeType(mappedFile.getFilename()), durationSeconds, tenantId, fileHash
         );
+        linkMetadataByNames(created.getId(), tenantId, mappedFile.getSpeaker(), mappedFile.getTags(), mappedFile.getGenres());
         log.info("Imported file: {} as '{}'", mappedFile.getFilename(), mappedFile.getTitle());
     }
 
@@ -389,6 +391,8 @@ public class BulkImportService {
                 join.setId(new AudioSpeakerJoinId(audioId, speaker.getId()));
                 join.setAudio(audio);
                 join.setSpeaker(speaker);
+                join.setRole(AudioSpeakerJoin.Role.SPEAKER);
+                join.setDisplayOrder(0);
                 audioSpeakerJoinRepository.save(join);
             }
         }
@@ -558,7 +562,7 @@ public class BulkImportService {
 
         // ── Batch save all Audio entities ──
         if (!audioEntities.isEmpty()) {
-            audioRepository.saveAll(audioEntities);
+            audioRepository.saveAllAndFlush(audioEntities);
             log.info("Batch save done: {} audio records", audioEntities.size());
         }
 
@@ -598,6 +602,8 @@ public class BulkImportService {
                 join.setId(new AudioSpeakerJoinId(audio.getId(), speaker.getId()));
                 join.setAudio(audio);
                 join.setSpeaker(speaker);
+                join.setRole(AudioSpeakerJoin.Role.SPEAKER);
+                join.setDisplayOrder(0);
                 speakerJoins.add(join);
                 speakersLinked++;
             }
