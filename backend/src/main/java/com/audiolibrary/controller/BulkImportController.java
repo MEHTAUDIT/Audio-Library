@@ -119,22 +119,6 @@ public class BulkImportController {
         }
     }
 
-    // ┌──────────────────────────────────────────────────────────────────┐
-    // │ CHANGED: Entire executeImport method rewritten                   │
-    // │                                                                  │
-    // │ BEFORE:                                                          │
-    // │   - Return type: ResponseEntity<JobStatus>                       │
-    // │   - Logic: for loop calling importSingleFile() 300 times         │
-    // │   - Manual error list + success counter                          │
-    // │   - Manual JobStatus builder at the end                          │
-    // │   - 300 files × 3 DB queries = 900 round-trips                  │
-    // │                                                                  │
-    // │ AFTER:                                                           │
-    // │   - Return type: ResponseEntity<BatchImportResult>               │
-    // │   - Logic: single call to importBatch()                          │
-    // │   - Batch handles hashing, dedup, storage, saveAll internally    │
-    // │   - 2 DB round-trips total (1 hash check + 1 batch save)        │
-    // └──────────────────────────────────────────────────────────────────┘
 
     @Operation(summary = "Execute bulk import",
             description = "Import all files from a server path with the given mapping. " +
