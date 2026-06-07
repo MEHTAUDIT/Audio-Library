@@ -20,6 +20,10 @@ Thumbs.db
 
 # Logs
 *.log
+*.log.*.gz
+
+# Uploads (local storage, not checked in)
+backend/uploads/
 
 # Node (frontend)
 node_modules/

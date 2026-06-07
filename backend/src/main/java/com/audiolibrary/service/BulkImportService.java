@@ -63,8 +63,20 @@ public class BulkImportService {
             "audio", "video", "videos", "files", "uploads", "library", "content", "media"  // CHANGED: added video/videos
     );
 
+    // macOS always injects __MACOSX/ + ._-prefixed resource forks into ZIPs; they must never be treated as content.
+    private static final String MACOS_METADATA_DIR = "__MACOSX";
+
+    private boolean isMacOsArtifact(String entryName) {
+        return entryName.startsWith(MACOS_METADATA_DIR + "/")
+                || entryName.contains("/" + MACOS_METADATA_DIR + "/")
+                || entryName.equals(MACOS_METADATA_DIR)
+                || entryName.contains("/._")
+                || entryName.startsWith("._");
+    }
+
     // Now accepts both audio and video file extensions
     public boolean isAudioFile(String filename) {
+        if (filename.startsWith("._")) return false; // macOS resource fork
         String lower = filename.toLowerCase();
         return MEDIA_EXTENSIONS.stream().anyMatch(lower::endsWith);
     }
@@ -77,6 +89,12 @@ public class BulkImportService {
         log.info("Scanning directory: {}", sourcePath);
         List<Path> audioFiles = new ArrayList<>();
         Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (MACOS_METADATA_DIR.equals(dir.getFileName().toString())) return FileVisitResult.SKIP_SUBTREE;
+                return FileVisitResult.CONTINUE;
+            }
+
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                 if (isAudioFile(file.getFileName().toString())) audioFiles.add(file);
@@ -236,6 +254,11 @@ public class BulkImportService {
                     throw new IllegalArgumentException("ZIP archive contains too many entries");
                 }
 
+                // Skip macOS metadata entries before path resolution
+                if (isMacOsArtifact(entry.getName())) {
+                    continue;
+                }
+
                 Path target = extractionRoot.resolve(entry.getName()).normalize();
                 if (!target.startsWith(extractionRoot)) {
                     throw new IllegalArgumentException("ZIP archive contains an invalid path");
@@ -336,6 +359,12 @@ public class BulkImportService {
         Path rootPath = Paths.get(sourcePath);
         List<MappedAudioFile> results = new ArrayList<>();
         Files.walkFileTree(rootPath, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (MACOS_METADATA_DIR.equals(dir.getFileName().toString())) return FileVisitResult.SKIP_SUBTREE;
+                return FileVisitResult.CONTINUE;
+            }
+
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                 if (isAudioFile(file.getFileName().toString())) {
